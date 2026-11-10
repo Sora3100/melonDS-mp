@@ -50,6 +50,9 @@ DefaultList<int> DefaultInts =
 {
     {"Instance*.Keyboard", -1},
     {"Instance*.Joystick", -1},
+    {"Instance*.Pad*.Keyboard", -1},
+    {"Instance*.Pad*.Joystick", -1},
+    {"Instance*.Pad*.JoystickID", -1},
     {"Instance*.Window*.Width", 256},
     {"Instance*.Window*.Height", 384},
     {"Screen.VSyncInterval", 1},
@@ -95,6 +98,8 @@ RangeList IntRanges =
 
 DefaultList<bool> DefaultBools =
 {
+    {"Instance*.ExtendedButtons", true},
+    {"Instance*.MultiController", true},
     {"Screen.Filter", true},
     {"3D.Soft.Threaded", true},
     {"3D.GL.HiresCoordinates", true},
@@ -340,7 +345,7 @@ LegacyEntry LegacyFile[] =
 
 static std::string GetDefaultKey(std::string path)
 {
-    std::string tables[] = {"Instance", "Window", "Camera"};
+    std::string tables[] = {"Instance", "Window", "Camera", "Pad"};
 
     std::string ret = "";
     int plen = path.length();

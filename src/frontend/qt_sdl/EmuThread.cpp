@@ -252,7 +252,32 @@ void EmuThread::run()
             }
 
             // process input and hotkeys
-            emuInstance->nds->SetKeyMask(emuInstance->inputMask);
+            {
+                bool ext = emuInstance->extendedButtons;
+                bool multi = emuInstance->multiController;
+                static const melonDS::s8 noAxes[4] = {0, 0, 0, 0};
+                static const melonDS::u8 noTrig[2] = {0, 0};
+
+                melonDS::u32 m = emuInstance->inputMask;
+                // extension inputs are reported only with extended buttons on (0xFFF = all released)
+                melonDS::u32 extm = ext ? ((m >> 12) & 0xFFF) : 0xFFF;
+                emuInstance->nds->SetKeyMask(m & 0xFFF, extm);
+
+                // the block exists while either feature is on
+                emuInstance->nds->SetMultiPadEnabled(ext || multi);
+                emuInstance->nds->SetMultiPad(0, m & 0xFFF, extm,
+                                              ext ? emuInstance->padAxes : noAxes,
+                                              ext ? emuInstance->padTriggers : noTrig, true);
+                for (int p = 1; p < EmuInstance::numPads; p++)
+                {
+                    auto& ep = emuInstance->extPads[p-1];
+                    emuInstance->nds->SetMultiPad(p, ep.inputMask & 0xFFF,
+                                                  ext ? ((ep.inputMask >> 12) & 0xFFF) : 0xFFF,
+                                                  ext ? ep.axes : noAxes, ext ? ep.triggers : noTrig,
+                                                  multi && ep.connected);
+                }
+                emuInstance->nds->MultiPadFrameDone();
+            }
 
             if (emuInstance->isTouching)
                 emuInstance->nds->TouchScreen(emuInstance->touchX, emuInstance->touchY);

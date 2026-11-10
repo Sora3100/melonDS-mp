@@ -159,10 +159,11 @@ class JoyMapButton : public QPushButton
     Q_OBJECT
 
 public:
-    JoyMapButton(int* mapping, bool hotkey) : QPushButton()
+    JoyMapButton(int* mapping, bool hotkey, int pad = 0) : QPushButton()
     {
         this->mapping = mapping;
         this->isHotkey = hotkey;
+        this->pad = pad;
 
         // the parent will be set later when this button is added to a layout
         parentDialog = nullptr;
@@ -179,6 +180,8 @@ public:
     ~JoyMapButton()
     {
     }
+
+    void refresh() { if (!isChecked()) setText(mappingText()); }
 
 protected:
     void showEvent(QShowEvent* event) override
@@ -222,7 +225,7 @@ protected:
 
     void checkJoystick()
     {
-        SDL_Joystick* joy = parentDialog->getJoystick();
+        SDL_Joystick* joy = parentDialog->getJoystick(pad);
         if (!joy) { click(); return; }
         if (!SDL_JoystickGetAttached(joy)) { click(); return; }
 
@@ -309,7 +312,7 @@ private slots:
 
             auto mutex = parentDialog->getJoyMutex();
             SDL_LockMutex(mutex.get());
-            SDL_Joystick* joy = parentDialog->getJoystick();
+            SDL_Joystick* joy = parentDialog->getJoystick(pad);
             if (joy && SDL_JoystickGetAttached(joy))
             {
                 int naxes = SDL_JoystickNumAxes(joy);
@@ -386,6 +389,7 @@ private:
     int* mapping;
     bool isHotkey;
 
+    int pad;
     int timerID;
     int axesRest[16];
 };

@@ -540,6 +540,11 @@ void NDS::Reset()
     KeyCnt[1] = 0;
     RCnt = 0;
 
+    memset(MultiPadMem, 0, sizeof(MultiPadMem));
+    MultiPadMem[0] = 'M'; MultiPadMem[1] = 'P'; MultiPadMem[2] = 'A'; MultiPadMem[3] = 'D';
+    MultiPadMem[4] = 1; MultiPadMem[5] = 0;
+    MultiPadMem[6] = MultiPadCount;
+
     GPU.Reset();
     NDSCartSlot.Reset();
     GBACartSlot.Reset();
@@ -1203,17 +1208,66 @@ void NDS::CheckKeyIRQ(u32 cpu, u32 oldkey, u32 newkey)
         SetIRQ(cpu, IRQ_Keypad);
 }
 
-void NDS::SetKeyMask(u32 mask)
+void NDS::SetKeyMask(u32 mask, u32 extMask)
 {
     u32 key_lo = mask & 0x3FF;
     u32 key_hi = (mask >> 10) & 0x3;
+    u32 ext = ~extMask & 0xFFF; // active-high
 
     u32 oldkey = KeyInput;
-    KeyInput &= 0xFFFCFC00;
+    KeyInput &= 0x00FCC000;
     KeyInput |= key_lo | (key_hi << 16);
+    KeyInput |= ((ext & 0xF) << 10) | ((ext >> 4) << 24);
 
     CheckKeyIRQ(0, oldkey, KeyInput);
     CheckKeyIRQ(1, oldkey, KeyInput);
+}
+
+void NDS::SetMultiPad(int pad, u32 mask, u32 extMask, const s8* axes, const u8* triggers, bool connected)
+{
+    if (pad < 0 || pad >= MultiPadCount) return;
+
+    u32 b = ~mask & 0xFFF;
+    u32 e = ~extMask & 0xFFF;
+    u32 buttons = (b & 0x3FF) | ((b >> 10) << 16) | ((e & 0xF) << 10) | ((e >> 4) << 24);
+    if (!connected) buttons = 0;
+
+    u8* p = &MultiPadMem[0x10 + pad*0x10];
+    memset(p, 0, 0x10);
+    p[0] = buttons & 0xFF;
+    p[1] = (buttons >> 8) & 0xFF;
+    p[2] = (buttons >> 16) & 0xFF;
+    p[3] = buttons >> 24;
+    if (connected)
+    {
+        for (int i = 0; i < 4; i++) p[4+i] = axes ? (u8)axes[i] : 0;
+        for (int i = 0; i < 2; i++) p[8+i] = triggers ? triggers[i] : 0;
+        MultiPadMem[7] |= (1 << pad);
+    }
+    else
+        MultiPadMem[7] &= ~(1 << pad);
+}
+
+void NDS::MultiPadFrameDone()
+{
+    u32 cnt = MultiPadMem[8] | (MultiPadMem[9] << 8) | (MultiPadMem[10] << 16) | (MultiPadMem[11] << 24);
+    cnt++;
+    MultiPadMem[8] = cnt & 0xFF;
+    MultiPadMem[9] = (cnt >> 8) & 0xFF;
+    MultiPadMem[10] = (cnt >> 16) & 0xFF;
+    MultiPadMem[11] = cnt >> 24;
+}
+
+u32 NDS::MultiPadRead(u32 addr, int size) const
+{
+    u32 off = (addr - MultiPadBase) & ~(size - 1);
+    u32 ret = 0;
+    for (int i = 0; i < size; i++)
+    {
+        if (off + i < MultiPadSize)
+            ret |= MultiPadMem[off + i] << (8*i);
+    }
+    return ret;
 }
 
 bool NDS::IsLidClosed() const
@@ -2895,6 +2949,9 @@ u8 NDS::ARM9IORead8(u32 addr)
         return (u8)(emuID[idx]);
     }
 
+    if (MultiPadEnabled && addr >= MultiPadBase && addr < MultiPadBase + MultiPadSize)
+        return MultiPadRead(addr, 1);
+
     if ((addr & 0xFFFFF000) != 0x04004000)
         Log(LogLevel::Debug, "unknown ARM9 IO read8 %08X %08X\n", addr, ARM9.R[15]);
     return 0;
@@ -3021,6 +3078,9 @@ u16 NDS::ARM9IORead16(u32 addr)
         return GPU.GPU3D.Read16(addr);
     }
 
+    if (MultiPadEnabled && addr >= MultiPadBase && addr < MultiPadBase + MultiPadSize)
+        return MultiPadRead(addr, 2);
+
     if ((addr & 0xFFFFF000) != 0x04004000)
         Log(LogLevel::Debug, "unknown ARM9 IO read16 %08X %08X\n", addr, ARM9.R[15]);
     return 0;
@@ -3144,6 +3204,9 @@ u32 NDS::ARM9IORead32(u32 addr)
     {
         return GPU.GPU3D.Read32(addr);
     }
+
+    if (MultiPadEnabled && addr >= MultiPadBase && addr < MultiPadBase + MultiPadSize)
+        return MultiPadRead(addr, 4);
 
     if ((addr & 0xFFFFF000) != 0x04004000)
         Log(LogLevel::Debug, "unknown ARM9 IO read32 %08X %08X\n", addr, ARM9.R[15]);
@@ -3683,6 +3746,9 @@ u8 NDS::ARM7IORead8(u32 addr)
         return SPU.Read8(addr);
     }
 
+    if (MultiPadEnabled && addr >= MultiPadBase && addr < MultiPadBase + MultiPadSize)
+        return MultiPadRead(addr, 1);
+
     if ((addr & 0xFFFFF000) != 0x04004000)
         Log(LogLevel::Debug, "unknown ARM7 IO read8 %08X %08X\n", addr, ARM7.R[15]);
     return 0;
@@ -3757,6 +3823,9 @@ u16 NDS::ARM7IORead16(u32 addr)
     {
         return SPU.Read16(addr);
     }
+
+    if (MultiPadEnabled && addr >= MultiPadBase && addr < MultiPadBase + MultiPadSize)
+        return MultiPadRead(addr, 2);
 
     if ((addr & 0xFFFFF000) != 0x04004000)
         Log(LogLevel::Debug, "unknown ARM7 IO read16 %08X %08X\n", addr, ARM7.R[15]);
@@ -3836,6 +3905,9 @@ u32 NDS::ARM7IORead32(u32 addr)
     {
         return SPU.Read32(addr);
     }
+
+    if (MultiPadEnabled && addr >= MultiPadBase && addr < MultiPadBase + MultiPadSize)
+        return MultiPadRead(addr, 4);
 
     if ((addr & 0xFFFFF000) != 0x04004000)
         Log(LogLevel::Debug, "unknown ARM7 IO read32 %08X %08X\n", addr, ARM7.R[15]);

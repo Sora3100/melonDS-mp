@@ -21,12 +21,18 @@
 
 #include <QDialog>
 #include <QPushButton>
+#include <QComboBox>
+#include <QStackedWidget>
+#include <QCheckBox>
+#include <QTabWidget>
+#include <QList>
 #include <initializer_list>
 
 #include "Config.h"
 #include "EmuInstance.h"
 
-static constexpr int keypad_num = 12;
+static constexpr int keypad_num = EmuInstance::numButtons;
+static constexpr int pad_num = EmuInstance::numPads;
 
 static constexpr std::initializer_list<int> hk_addons =
 {
@@ -106,7 +112,9 @@ public:
     explicit InputConfigDialog(QWidget* parent);
     ~InputConfigDialog();
 
-    SDL_Joystick* getJoystick();
+    SDL_Joystick* getJoystick(int pad = 0);
+    // called (GUI thread) when a hotplugged joystick was given to a pad
+    void onJoystickAutoAssigned(int pad, int joyIndex, const int* mapping);
     std::shared_ptr<SDL_mutex> getJoyMutex();
 
     static InputConfigDialog* currentDlg;
@@ -131,21 +139,36 @@ private slots:
     void on_InputConfigDialog_accepted();
     void on_InputConfigDialog_rejected();
 
-    void on_btnKeyMapSwitch_clicked();
-    void on_btnJoyMapSwitch_clicked();
-    void on_cbxJoystick_currentIndexChanged(int id);
 
 private:
     void populatePage(QWidget* page,
         const std::initializer_list<const char*>& labels,
         int* keymap, int* joymap);
     void setupKeypadPage();
+    QWidget* buildPadPage(int pad);
+    QWidget* buildMappingGrid(int pad, bool joy);
+    QWidget* makeMapItem(int pad, bool joy, int btn, const char* label);
+    QWidget* makeCluster(int pad, bool joy, int up, int left, int mid, int right, int down,
+                         const char* lu, const char* ll, const char* lm, const char* lr, const char* ld);
 
     Ui::InputConfigDialog* ui;
 
     EmuInstance* emuInstance;
 
-    int keypadKeyMap[12], keypadJoyMap[12];
+    int keypadKeyMap[pad_num][keypad_num], keypadJoyMap[pad_num][keypad_num];
+    int padJoystickID[pad_num];
+    int padJoystickOrig[pad_num];
+    QCheckBox* chkExtended;
+    QCheckBox* chkMulti;
+    QTabWidget* padTabs;
+    QList<QWidget*> extWidgets;
+    void applyToggles();
+    QList<class JoyMapButton*> padJoyButtons[pad_num];
+    void loadPadMappings(int pad, Config::Table keycfg, Config::Table joycfg);
+    void savePadMappings(int pad, Config::Table keycfg, Config::Table joycfg);
+    void fillJoyCombo(int pad);
+    QStackedWidget* padStack[pad_num];
+    QComboBox* padJoyCombo[pad_num];
     int addonsKeyMap[hk_addons.size()], addonsJoyMap[hk_addons.size()];
     int hkGeneralKeyMap[hk_general.size()], hkGeneralJoyMap[hk_general.size()];
     int joystickID;

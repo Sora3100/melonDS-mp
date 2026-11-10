@@ -419,7 +419,40 @@ public: // TODO: Encapsulate the rest of these members
     void TouchScreen(u16 x, u16 y);
     void ReleaseScreen();
 
-    void SetKeyMask(u32 mask);
+    // mask: DS keys, active-low (bits 0-9 KEYINPUT order, 10 X, 11 Y)
+    // extMask: extension inputs, active-low (bit 0 L2, 1 R2, 2 L3, 3 R3,
+    //   4-7 left stick Right/Left/Up/Down, 8-11 right stick Right/Left/Up/Down)
+    // Extension inputs show up active-high in the reserved register bits:
+    //   KEYINPUT  (0x04000130) bits 10-13 = L2, R2, L3, R3
+    //   EXTKEYIN  (0x04000136, ARM7) bits 8-15 = LS R/L/U/D, RS R/L/U/D
+    void SetKeyMask(u32 mask, u32 extMask = 0xFFF);
+
+    // Multi-controller block, read-only, mapped for ARM9 and ARM7 at
+    // MultiPadBase. Layout (little endian):
+    //   +0x00 u32  magic 'MPAD' (0x4441504D)
+    //   +0x04 u16  version (1)
+    //   +0x06 u8   pad count (8)
+    //   +0x07 u8   connected mask (bit n = pad n present)
+    //   +0x08 u32  update counter (incremented every frame)
+    //   +0x0C u32  reserved
+    //   +0x10 + n*0x10, pad n (0..7):
+    //     +0 u32 buttons, active-high:
+    //            bits 0-9 like KEYINPUT (A B Sel Start Right Left Up Down R L)
+    //            10 L2, 11 R2, 12 L3, 13 R3, 16 X, 17 Y,
+    //            24-27 left stick Right/Left/Up/Down, 28-31 right stick R/L/U/D
+    //     +4 s8  left X, left Y, right X, right Y (-128..127, +Y = down)
+    //     +8 u8  L2, R2 analog (0..255)
+    //     +A u16 reserved, +C u32 reserved
+    static constexpr u32 MultiPadBase = 0x04FFF000;
+    static constexpr u32 MultiPadSize = 0x90;
+    static constexpr int MultiPadCount = 8;
+    // mask/extMask as for SetKeyMask; axes = {lx, ly, rx, ry}; triggers = {l2, r2}
+    void SetMultiPad(int pad, u32 mask, u32 extMask, const s8* axes, const u8* triggers, bool connected);
+    void MultiPadFrameDone();
+    // false: no block at MultiPadBase (reads return 0, as on hardware)
+    void SetMultiPadEnabled(bool enable) { MultiPadEnabled = enable; }
+    bool MultiPadEnabled = true;
+    u32 MultiPadRead(u32 addr, int size) const;
 
     bool IsLidClosed() const;
     void SetLidClosed(bool closed);
@@ -531,6 +564,7 @@ protected:
     alignas(u64) u32 SqrtVal[2];
     u32 SqrtRes;
     u16 KeyCnt[2];
+    alignas(u32) u8 MultiPadMem[MultiPadSize];
     bool Running;
     bool RunningGame;
     u64 LastSysClockCycles;

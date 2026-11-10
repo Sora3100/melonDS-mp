@@ -20,6 +20,7 @@
 #define EMUINSTANCE_H
 
 #include <SDL2/SDL.h>
+#include <vector>
 
 #include "Platform.h"
 #include "main.h"
@@ -142,7 +143,9 @@ public:
                          melonDS::u32 (&animatedIconRef)[64][32*32],
                          std::vector<int> &animatedSequenceRef);
 
-    static const char* buttonNames[12];
+    static constexpr int numButtons = 24;   // 12 DS keys + 12 extension inputs
+    static constexpr int numPads = 8;
+    static const char* buttonNames[numButtons];
     static const char* hotkeyNames[HK_MAX];
 
     void inputInit();
@@ -157,6 +160,15 @@ public:
     void setJoystick(int id);
     int getJoystickID() { return joystickID; }
     SDL_Joystick* getJoystick() { return joystick; }
+    // pad 0 = main pad, 1..7 = extra pads
+    void setPadJoystick(int pad, int id);
+    SDL_Joystick* getPadJoystick(int pad) { return pad == 0 ? joystick : extPads[pad-1].joystick; }
+    // current SDL device index of a pad's joystick (-1 = none)
+    int getPadJoystickIndex(int pad);
+    // live joystick mapping of a pad (numButtons entries)
+    const int* getPadJoyMapping(int pad) { return pad == 0 ? joyMapping : extPads[pad-1].joyMapping; }
+    // fills a 24-entry joystick mapping from SDL's controller database (false if unknown device)
+    static bool autoMapController(int devIndex, int* map) { return fillMappingFromController(devIndex, map); }
     std::shared_ptr<SDL_mutex> getJoyMutex() { return joyMutex; }
 
     void touchScreen(int x, int y);
@@ -249,6 +261,9 @@ private:
     void openJoystick();
     void closeJoystick();
     bool joystickButtonDown(int val);
+    static bool joystickButtonDown(SDL_Joystick* joy, int val);
+    static int joystickAxisValue(SDL_Joystick* joy, int val, bool trigger);
+    void computePadAnalog(SDL_Joystick* joy, const int* joymap, melonDS::u32 mask, melonDS::s8* axes, melonDS::u8* trig);
 
     void inputProcess();
 
@@ -352,8 +367,40 @@ private:
     std::string micDeviceName;
     std::string micWavPath;
 
-    int keyMapping[12];
-    int joyMapping[12];
+    int keyMapping[numButtons];
+    int joyMapping[numButtons];
+
+    struct ExtPad
+    {
+        int keyMapping[numButtons];
+        int joyMapping[numButtons];
+        int joystickID;
+        SDL_Joystick* joystick;
+        melonDS::u32 keyInputMask;  // active-low, 24 bits
+        melonDS::u32 inputMask;
+        bool connected;
+        melonDS::s8 axes[4];
+        melonDS::u8 triggers[2];
+    };
+    ExtPad extPads[numPads-1];
+    melonDS::s8 padAxes[4];
+    melonDS::u8 padTriggers[2];
+    void openExtJoystick(int pad);
+
+    // hotplug: newly connected joysticks go to a free pad, and a pad whose
+    // joystick mappings are all None gets them filled from the SDL controller db
+    void inputHotplug();
+    bool isJoystickHeld(SDL_JoystickID id);
+    int pickFreePad(SDL_JoystickGUID guid);
+    void assignJoystick(int pad, int devIndex);
+    void autoFillPad(int pad, int devIndex, bool assigned);
+    static bool fillMappingFromController(int devIndex, int* map);
+    void saveAutoMapping(int pad, int joyIndex, bool mappingChanged);
+    std::vector<SDL_JoystickID> knownJoysticks;
+    bool extendedButtons = true;   // L2/R2/L3/R3 + sticks reported to the game
+    bool multiController = true;   // controllers 2-8 active
+    SDL_JoystickGUID padLastGUID[numPads];
+    bool padHasGUID[numPads];
     int hkKeyMapping[HK_MAX];
     int hkJoyMapping[HK_MAX];
 

@@ -20,8 +20,18 @@
 #include <QLabel>
 #include <QKeyEvent>
 #include <QDebug>
+#include <QTabWidget>
+#include <QTabBar>
+#include <QGridLayout>
+#include <QHBoxLayout>
+#include <QVBoxLayout>
+#include <QMessageBox>
+#include <QSignalBlocker>
+#include <cstring>
 
 #include <SDL2/SDL.h>
+
+#include <string>
 
 #include "types.h"
 #include "Platform.h"
@@ -34,8 +44,19 @@
 using namespace melonDS;
 InputConfigDialog* InputConfigDialog::currentDlg = nullptr;
 
-const int dskeyorder[12] = {0, 1, 10, 11, 5, 4, 6, 7, 9, 8, 2, 3};
-const char* dskeylabels[12] = {"A", "B", "X", "Y", "Left", "Right", "Up", "Down", "L", "R", "Select", "Start"};
+// indices into EmuInstance::buttonNames
+enum
+{
+    B_A = 0, B_B, B_Select, B_Start, B_Right, B_Left, B_Up, B_Down, B_R, B_L, B_X, B_Y,
+    B_L2, B_R2, B_L3, B_R3,
+    B_LSRight, B_LSLeft, B_LSUp, B_LSDown,
+    B_RSRight, B_RSLeft, B_RSUp, B_RSDown,
+};
+
+static std::string padTableName(int pad)
+{
+    return "Pad" + std::to_string(pad + 1);
+}
 
 InputConfigDialog::InputConfigDialog(QWidget* parent) : QDialog(parent), ui(new Ui::InputConfigDialog)
 {
@@ -48,12 +69,29 @@ InputConfigDialog::InputConfigDialog(QWidget* parent) : QDialog(parent), ui(new 
     Config::Table keycfg = instcfg.GetTable("Keyboard");
     Config::Table joycfg = instcfg.GetTable("Joystick");
 
-    for (int i = 0; i < keypad_num; i++)
+    for (int p = 0; p < pad_num; p++)
     {
-        const char* btn = EmuInstance::buttonNames[dskeyorder[i]];
-        keypadKeyMap[i] = keycfg.GetInt(btn);
-        keypadJoyMap[i] = joycfg.GetInt(btn);
+        if (p > 0)
+        {
+            Config::Table padcfg = instcfg.GetTable(padTableName(p));
+            loadPadMappings(p, padcfg.GetTable("Keyboard"), padcfg.GetTable("Joystick"));
+        }
+        else
+            loadPadMappings(p, keycfg, joycfg);
+
+        // the joystick this pad really uses right now (may have been hotplug-assigned)
+        padJoystickID[p] = emuInstance->getPadJoystickIndex(p);
+        padJoystickOrig[p] = padJoystickID[p];
+
+        // keep live auto-filled mappings that may not have reached the config yet
+        const int* live = emuInstance->getPadJoyMapping(p);
+        bool cfgEmpty = true;
+        for (int i = 0; i < keypad_num; i++)
+            if (keypadJoyMap[p][i] != -1) { cfgEmpty = false; break; }
+        if (cfgEmpty)
+            for (int i = 0; i < keypad_num; i++) keypadJoyMap[p][i] = live[i];
     }
+    joystickID = padJoystickID[0];
 
     int i = 0;
     for (int hotkey : hk_addons)
@@ -76,24 +114,6 @@ InputConfigDialog::InputConfigDialog(QWidget* parent) : QDialog(parent), ui(new 
     populatePage(ui->tabAddons, hk_addons_labels, addonsKeyMap, addonsJoyMap);
     populatePage(ui->tabHotkeysGeneral, hk_general_labels, hkGeneralKeyMap, hkGeneralJoyMap);
 
-    joystickID = instcfg.GetInt("JoystickID");
-
-    int njoy = SDL_NumJoysticks();
-    if (njoy > 0)
-    {
-        for (int i = 0; i < njoy; i++)
-        {
-            const char* name = SDL_JoystickNameForIndex(i);
-            ui->cbxJoystick->addItem(QString(name));
-        }
-        ui->cbxJoystick->setCurrentIndex(joystickID);
-    }
-    else
-    {
-        ui->cbxJoystick->addItem("(no joysticks available)");
-        ui->cbxJoystick->setEnabled(false);
-    }
-
     setupKeypadPage();
 
     int inst = emuInstance->getInstanceID();
@@ -103,32 +123,314 @@ InputConfigDialog::InputConfigDialog(QWidget* parent) : QDialog(parent), ui(new 
         ui->lblInstanceNum->hide();
 }
 
+void InputConfigDialog::loadPadMappings(int pad, Config::Table keycfg, Config::Table joycfg)
+{
+    for (int i = 0; i < keypad_num; i++)
+    {
+        const char* btn = EmuInstance::buttonNames[i];
+        keypadKeyMap[pad][i] = keycfg.GetInt(btn);
+        keypadJoyMap[pad][i] = joycfg.GetInt(btn);
+    }
+}
+
+void InputConfigDialog::savePadMappings(int pad, Config::Table keycfg, Config::Table joycfg)
+{
+    for (int i = 0; i < keypad_num; i++)
+    {
+        const char* btn = EmuInstance::buttonNames[i];
+        keycfg.SetInt(btn, keypadKeyMap[pad][i]);
+        joycfg.SetInt(btn, keypadJoyMap[pad][i]);
+    }
+}
+
 InputConfigDialog::~InputConfigDialog()
 {
     delete ui;
 }
 
+QWidget* InputConfigDialog::makeMapItem(int pad, bool joy, int btn, const char* label)
+{
+    QGroupBox* grp = new QGroupBox();
+    QVBoxLayout* lay = new QVBoxLayout();
+    lay->setContentsMargins(6, 4, 6, 6);
+    lay->setSpacing(3);
+
+    QLabel* lbl = new QLabel(QString("<b>%1</b>").arg(label));
+    lbl->setAlignment(Qt::AlignCenter);
+    lay->addWidget(lbl);
+
+    QPushButton* b;
+    if (joy)
+    {
+        JoyMapButton* jb = new JoyMapButton(&keypadJoyMap[pad][btn], false, pad);
+        padJoyButtons[pad].append(jb);
+        b = jb;
+    }
+    else     b = new KeyMapButton(&keypadKeyMap[pad][btn], false);
+    b->setMinimumWidth(108);
+    lay->addWidget(b);
+
+    grp->setLayout(lay);
+    grp->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    return grp;
+}
+
+QWidget* InputConfigDialog::makeCluster(int pad, bool joy, int up, int left, int mid, int right, int down,
+                                        const char* lu, const char* ll, const char* lm, const char* lr, const char* ld)
+{
+    // plus-shaped group: up on top, left/(mid)/right in the middle, down at the bottom
+    QGroupBox* cl = new QGroupBox();
+    cl->setObjectName("cluster");
+    QGridLayout* g = new QGridLayout();
+    g->setContentsMargins(0, 0, 0, 0);
+    g->setSpacing(2);
+
+    g->addWidget(makeMapItem(pad, joy, up, lu), 0, 1, Qt::AlignCenter);
+    g->addWidget(makeMapItem(pad, joy, left, ll), 1, 0, Qt::AlignCenter);
+    if (mid >= 0)
+        g->addWidget(makeMapItem(pad, joy, mid, lm), 1, 1, Qt::AlignCenter);
+    g->addWidget(makeMapItem(pad, joy, right, lr), 1, 2, Qt::AlignCenter);
+    g->addWidget(makeMapItem(pad, joy, down, ld), 2, 1, Qt::AlignCenter);
+
+    cl->setLayout(g);
+    return cl;
+}
+
+QWidget* InputConfigDialog::buildMappingGrid(int pad, bool joy)
+{
+    QWidget* page = new QWidget();
+    QGridLayout* g = new QGridLayout();
+    g->setVerticalSpacing(6);
+    g->setHorizontalSpacing(10);
+
+    QLabel* title = new QLabel(joy ? "Joystick mappings" : "Keyboard mappings");
+    QFont f = title->font();
+    f.setPointSize(14);
+    title->setFont(f);
+    title->setAlignment(Qt::AlignCenter);
+    g->addWidget(title, 0, 1);
+
+    // shoulders: L2/R2 above L/R, beside the back view of the DS
+    QVBoxLayout* lcol = new QVBoxLayout();
+    lcol->setSpacing(4);
+    QWidget* w;
+    lcol->addWidget(w = makeMapItem(pad, joy, B_L2, "L2"), 0, Qt::AlignRight);
+    extWidgets.append(w);
+    lcol->addWidget(makeMapItem(pad, joy, B_L, "L"), 0, Qt::AlignRight);
+    g->addLayout(lcol, 1, 0, Qt::AlignRight | Qt::AlignVCenter);
+
+    QVBoxLayout* rcol = new QVBoxLayout();
+    rcol->setSpacing(4);
+    rcol->addWidget(w = makeMapItem(pad, joy, B_R2, "R2"), 0, Qt::AlignLeft);
+    extWidgets.append(w);
+    rcol->addWidget(makeMapItem(pad, joy, B_R, "R"), 0, Qt::AlignLeft);
+    g->addLayout(rcol, 1, 2, Qt::AlignLeft | Qt::AlignVCenter);
+
+    QLabel* back = new QLabel();
+    back->setPixmap(QPixmap(":/ds/ds_back.svg"));
+    back->setAlignment(Qt::AlignCenter);
+    g->addWidget(back, 1, 1);
+
+    QLabel* open = new QLabel();
+    open->setPixmap(QPixmap(":/ds/ds_open.svg"));
+    open->setAlignment(Qt::AlignCenter);
+    g->addWidget(open, 2, 1, 2, 1);
+
+    // d-pad, then the left stick (L3 in the middle) below it
+    g->addWidget(makeCluster(pad, joy, B_Up, B_Left, -1, B_Right, B_Down,
+                             "Up", "Left", nullptr, "Right", "Down"),
+                 2, 0, Qt::AlignRight | Qt::AlignVCenter);
+    g->addWidget(w = makeCluster(pad, joy, B_LSUp, B_LSLeft, B_L3, B_LSRight, B_LSDown,
+                                 "LS Up", "LS Left", "L3", "LS Right", "LS Down"),
+                 3, 0, Qt::AlignRight | Qt::AlignVCenter);
+    extWidgets.append(w);
+
+    // face buttons, then the right stick (R3 in the middle) below them
+    g->addWidget(makeCluster(pad, joy, B_X, B_Y, -1, B_A, B_B,
+                             "X", "Y", nullptr, "A", "B"),
+                 2, 2, Qt::AlignLeft | Qt::AlignVCenter);
+    g->addWidget(w = makeCluster(pad, joy, B_RSUp, B_RSLeft, B_R3, B_RSRight, B_RSDown,
+                                 "RS Up", "RS Left", "R3", "RS Right", "RS Down"),
+                 3, 2, Qt::AlignLeft | Qt::AlignVCenter);
+    extWidgets.append(w);
+
+    QHBoxLayout* ss = new QHBoxLayout();
+    ss->addStretch(1);
+    ss->addWidget(makeMapItem(pad, joy, B_Select, "Select"));
+    ss->addSpacing(50);
+    ss->addWidget(makeMapItem(pad, joy, B_Start, "Start"));
+    ss->addStretch(1);
+    g->addLayout(ss, 4, 1);
+
+    QHBoxLayout* sw = new QHBoxLayout();
+    sw->addStretch(1);
+    QPushButton* swbtn = new QPushButton(joy ? "Switch to Keyboard mappings" : "Switch to Joystick mappings");
+    sw->addWidget(swbtn);
+    sw->addStretch(1);
+    g->addLayout(sw, 5, 0, 1, 3);
+
+    connect(swbtn, &QPushButton::clicked, this, [this, pad, joy]()
+    {
+        padStack[pad]->setCurrentIndex(joy ? 0 : 1);
+    });
+
+    g->setRowStretch(6, 1);
+    page->setLayout(g);
+    return page;
+}
+
+QWidget* InputConfigDialog::buildPadPage(int pad)
+{
+    QWidget* page = new QWidget();
+    QVBoxLayout* v = new QVBoxLayout();
+
+    QStackedWidget* stack = new QStackedWidget();
+    stack->addWidget(buildMappingGrid(pad, false));
+    stack->addWidget(buildMappingGrid(pad, true));
+    padStack[pad] = stack;
+    v->addWidget(stack);
+
+    QHBoxLayout* jl = new QHBoxLayout();
+    jl->addWidget(new QLabel(QString("Joystick for controller %1:").arg(pad + 1)));
+    QComboBox* cbx = new QComboBox();
+    cbx->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
+    padJoyCombo[pad] = cbx;
+    jl->addWidget(cbx, 1);
+    v->addLayout(jl);
+
+    QPushButton* autobtn = new QPushButton("Auto-fill");
+    autobtn->setToolTip("Fill this controller's joystick mappings from the selected joystick (SDL controller database)");
+    jl->addWidget(autobtn);
+
+    fillJoyCombo(pad);
+
+    connect(cbx, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, pad](int idx)
+    {
+        if (idx < 0) return;
+        int id = padJoyCombo[pad]->itemData(idx).toInt();
+        if (id == -2) return; // "(no joysticks available)"
+        padJoystickID[pad] = id;
+        if (pad == 0) joystickID = id;
+        emuInstance->setPadJoystick(pad, id);
+    });
+
+    connect(autobtn, &QPushButton::clicked, this, [this, pad]()
+    {
+        int id = padJoystickID[pad];
+        if (id < 0 || id >= SDL_NumJoysticks())
+        {
+            QMessageBox::information(this, "melonDS", "Select a joystick for this controller first.");
+            return;
+        }
+        int map[keypad_num];
+        auto mutex = emuInstance->getJoyMutex();
+        SDL_LockMutex(mutex.get());
+        bool ok = EmuInstance::autoMapController(id, map);
+        SDL_UnlockMutex(mutex.get());
+        if (!ok)
+        {
+            QMessageBox::information(this, "melonDS",
+                "This joystick is not in SDL's controller database, so its buttons can't be filled in automatically.");
+            return;
+        }
+        memcpy(keypadJoyMap[pad], map, sizeof(map));
+        for (JoyMapButton* jb : padJoyButtons[pad]) jb->refresh();
+        padStack[pad]->setCurrentIndex(1);
+    });
+
+    int njoy = SDL_NumJoysticks();
+    // show the joystick page when this controller has a joystick
+    bool hasjoy = (padJoystickID[pad] >= 0) && (padJoystickID[pad] < njoy);
+    stack->setCurrentIndex(hasjoy ? 1 : 0);
+
+    page->setLayout(v);
+    return page;
+}
+
+void InputConfigDialog::fillJoyCombo(int pad)
+{
+    QComboBox* cbx = padJoyCombo[pad];
+    QSignalBlocker block(cbx);
+    cbx->clear();
+
+    int njoy = SDL_NumJoysticks();
+    if (njoy < 1 && pad == 0)
+    {
+        cbx->addItem("(no joysticks available)", -2);
+        cbx->setEnabled(false);
+        return;
+    }
+    cbx->setEnabled(true);
+    cbx->addItem("(none)", -1);
+    for (int i = 0; i < njoy; i++)
+        cbx->addItem(QString("%1: %2").arg(i + 1).arg(SDL_JoystickNameForIndex(i)), i);
+
+    int id = padJoystickID[pad];
+    if (id >= njoy) id = -1;
+    cbx->setCurrentIndex(id + 1);
+}
+
+void InputConfigDialog::onJoystickAutoAssigned(int pad, int joyIndex, const int* mapping)
+{
+    padJoystickID[pad] = joyIndex;
+    padJoystickOrig[pad] = joyIndex;
+    if (pad == 0) joystickID = joyIndex;
+    for (int p = 0; p < pad_num; p++) fillJoyCombo(p);
+
+    if (mapping)
+    {
+        memcpy(keypadJoyMap[pad], mapping, sizeof(keypadJoyMap[pad]));
+        for (JoyMapButton* jb : padJoyButtons[pad]) jb->refresh();
+        padStack[pad]->setCurrentIndex(1);
+    }
+}
+
 void InputConfigDialog::setupKeypadPage()
 {
-    for (int i = 0; i < keypad_num; i++)
-    {
-        QPushButton* pushButtonKey = this->findChild<QPushButton*>(QStringLiteral("btnKey") + dskeylabels[i]);
-        QPushButton* pushButtonJoy = this->findChild<QPushButton*>(QStringLiteral("btnJoy") + dskeylabels[i]);
+    Config::Table& instcfg = emuInstance->getLocalConfig();
 
-        KeyMapButton* keyMapButtonKey = new KeyMapButton(&keypadKeyMap[i], false);
-        JoyMapButton* keyMapButtonJoy = new JoyMapButton(&keypadJoyMap[i], false);
+    QHBoxLayout* toggles = new QHBoxLayout();
+    chkExtended = new QCheckBox("Extended buttons (L2/R2, L3/R3, analog sticks)");
+    chkExtended->setToolTip("Reports the extra inputs in the reserved KEYINPUT/EXTKEYIN bits and in the multi-pad block at 0x04FFF000");
+    chkExtended->setChecked(instcfg.GetBool("ExtendedButtons"));
+    chkMulti = new QCheckBox("Multiple controllers (2-8)");
+    chkMulti->setToolTip("Reports controllers 2-8 in the multi-pad block at 0x04FFF000");
+    chkMulti->setChecked(instcfg.GetBool("MultiController"));
+    toggles->addWidget(chkExtended);
+    toggles->addSpacing(20);
+    toggles->addWidget(chkMulti);
+    toggles->addStretch(1);
 
-        pushButtonKey->parentWidget()->layout()->replaceWidget(pushButtonKey, keyMapButtonKey);
-        pushButtonJoy->parentWidget()->layout()->replaceWidget(pushButtonJoy, keyMapButtonJoy);
+    padTabs = new QTabWidget();
+    padTabs->setTabPosition(QTabWidget::West);
 
-        delete pushButtonKey;
-        delete pushButtonJoy;
+    for (int p = 0; p < pad_num; p++)
+        padTabs->addTab(buildPadPage(p), QString("Controller %1").arg(p + 1));
 
-        if (ui->cbxJoystick->isEnabled())
-        {
-            ui->stackMapping->setCurrentIndex(1);
-        }
-    }
+    QVBoxLayout* v = new QVBoxLayout();
+    v->setContentsMargins(4, 4, 4, 4);
+    v->addLayout(toggles);
+    v->addWidget(padTabs);
+    ui->tabInput->setLayout(v);
+
+    connect(chkExtended, &QCheckBox::toggled, this, [this]() { applyToggles(); });
+    connect(chkMulti, &QCheckBox::toggled, this, [this]() { applyToggles(); });
+    applyToggles();
+}
+
+void InputConfigDialog::applyToggles()
+{
+    bool ext = chkExtended->isChecked();
+    bool multi = chkMulti->isChecked();
+
+    for (QWidget* w : extWidgets)
+        w->setVisible(ext);
+
+    if (!multi) padTabs->setCurrentIndex(0);
+    for (int p = 1; p < pad_num; p++)
+        padTabs->setTabVisible(p, multi);
+    // a single controller doesn't need the side tabs at all
+    padTabs->tabBar()->setVisible(multi);
 }
 
 void InputConfigDialog::populatePage(QWidget* page,
@@ -188,11 +490,16 @@ void InputConfigDialog::on_InputConfigDialog_accepted()
     Config::Table keycfg = instcfg.GetTable("Keyboard");
     Config::Table joycfg = instcfg.GetTable("Joystick");
 
-    for (int i = 0; i < keypad_num; i++)
+    for (int p = 0; p < pad_num; p++)
     {
-        const char* btn = EmuInstance::buttonNames[dskeyorder[i]];
-        keycfg.SetInt(btn, keypadKeyMap[i]);
-        joycfg.SetInt(btn, keypadJoyMap[i]);
+        if (p > 0)
+        {
+            Config::Table padcfg = instcfg.GetTable(padTableName(p));
+            padcfg.SetInt("JoystickID", padJoystickID[p]);
+            savePadMappings(p, padcfg.GetTable("Keyboard"), padcfg.GetTable("Joystick"));
+        }
+        else
+            savePadMappings(p, keycfg, joycfg);
     }
 
     int i = 0;
@@ -214,6 +521,8 @@ void InputConfigDialog::on_InputConfigDialog_accepted()
     }
 
     instcfg.SetInt("JoystickID", joystickID);
+    instcfg.SetBool("ExtendedButtons", chkExtended->isChecked());
+    instcfg.SetBool("MultiController", chkMulti->isChecked());
     Config::Save();
 
     emuInstance->inputLoadConfig();
@@ -223,34 +532,17 @@ void InputConfigDialog::on_InputConfigDialog_accepted()
 
 void InputConfigDialog::on_InputConfigDialog_rejected()
 {
-    Config::Table& instcfg = emuInstance->getLocalConfig();
-    emuInstance->setJoystick(instcfg.GetInt("JoystickID"));
+    // undo joystick selections made in this dialog
+    for (int p = 0; p < pad_num; p++)
+        if (padJoystickID[p] != padJoystickOrig[p])
+            emuInstance->setPadJoystick(p, padJoystickOrig[p]);
 
     closeDlg();
 }
 
-void InputConfigDialog::on_btnKeyMapSwitch_clicked()
+SDL_Joystick* InputConfigDialog::getJoystick(int pad)
 {
-    ui->stackMapping->setCurrentIndex(0);
-}
-
-void InputConfigDialog::on_btnJoyMapSwitch_clicked()
-{
-    ui->stackMapping->setCurrentIndex(1);
-}
-
-void InputConfigDialog::on_cbxJoystick_currentIndexChanged(int id)
-{
-    // prevent a spurious change
-    if (ui->cbxJoystick->count() < 2) return;
-
-    joystickID = id;
-    emuInstance->setJoystick(id);
-}
-
-SDL_Joystick* InputConfigDialog::getJoystick()
-{
-    return emuInstance->getJoystick();
+    return emuInstance->getPadJoystick(pad);
 }
 
 std::shared_ptr<SDL_mutex> InputConfigDialog::getJoyMutex()
