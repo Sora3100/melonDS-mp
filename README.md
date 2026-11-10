@@ -17,6 +17,128 @@ DS emulator, sorta
 The goal is to do things right and fast, akin to blargSNES (but hopefully better). But also to, you know, have a fun challenge :)
 <hr>
 
+## melonDS-mp: extended buttons and up to 8 controllers
+
+This fork adds modern-controller inputs and multi-controller support that homebrew (or patched
+games) can read from the emulated DS.
+
+### Features
+
+* **24 inputs per controller**: the 12 DS keys plus **L2, R2, L3, R3** and the four directions of
+  the **left and right analog sticks**, with real analog values for sticks and triggers.
+* **Up to 8 controllers**, each with its own keyboard mappings, joystick mappings and joystick.
+* **Reworked input dialog** (*Config → Input and hotkeys → DS keypad*):
+  * tabs on the left for **Controller 1-8**;
+  * L2/R2 above L/R, the left stick (L3 in the middle) under the d-pad, the right stick
+    (R3 in the middle) under the face buttons;
+  * a joystick selector per controller with an **Auto-fill** button that fills the joystick
+    mappings from SDL's game controller database.
+* **Hotplug**: a newly connected joystick goes to a free controller (preferring the one it was
+  last unplugged from). If that controller's joystick mappings are all *None*, they are filled in
+  automatically (Nintendo layout by position: A = right, B = bottom, X = top, Y = left).
+* **Toggles** at the top of the DS keypad tab: *Extended buttons* and *Multiple controllers*
+  (both on by default). With both off, melonDS behaves exactly like upstream.
+
+### Where the controllers live
+
+**Controller 1** is the DS itself. Its extra inputs also appear in the reserved bits of the DS key
+registers. They are **active-high** (1 = pressed), so they read 0 when nothing is pressed, exactly
+like the reserved bits on hardware. The normal DS keys keep their usual active-low meaning.
+
+| Register | Bits |
+|---|---|
+| `KEYINPUT` `0x04000130` (ARM9 + ARM7) | 10 L2, 11 R2, 12 L3, 13 R3 |
+| `EXTKEYIN` `0x04000136` (ARM7 only) | 8 LS Right, 9 LS Left, 10 LS Up, 11 LS Down, 12 RS Right, 13 RS Left, 14 RS Up, 15 RS Down |
+
+**All 8 controllers** are in a read-only block at **`0x04FFF000`**, readable from both CPUs with
+8-, 16- or 32-bit reads. Check the magic first: on real hardware or upstream melonDS this
+range reads 0.
+
+| Offset | Type | Meaning |
+|---|---|---|
+| `0x00` | u32 | magic `'MPAD'` = `0x4441504D` |
+| `0x04` | u16 | version (1) |
+| `0x06` | u8 | controller count (8) |
+| `0x07` | u8 | connected mask (bit *n* = controller *n*+1 present) |
+| `0x08` | u32 | update counter (+1 every emulated frame) |
+| `0x0C` | u32 | reserved |
+| `0x10 + n*0x10` | 16 bytes | controller *n*+1 (*n* = 0..7) |
+
+Each controller entry:
+
+| Offset | Type | Meaning |
+|---|---|---|
+| `+0x0` | u32 | button word, **all active-high** (below) |
+| `+0x4` | s8 ×4 | left X, left Y, right X, right Y (-128..127, +Y = down) |
+| `+0x8` | u8 ×2 | L2, R2 analog (0..255) |
+| `+0xA` | — | reserved (0) |
+
+Button word (KEYINPUT layout in the low half, EXTKEYIN layout in the high half):
+
+| Bit | Input | Bit | Input |
+|---|---|---|---|
+| 0 | A | 10 | L2 |
+| 1 | B | 11 | R2 |
+| 2 | Select | 12 | L3 |
+| 3 | Start | 13 | R3 |
+| 4 | Right | 16 | X |
+| 5 | Left | 17 | Y |
+| 6 | Up | 24-27 | left stick Right / Left / Up / Down |
+| 7 | Down | 28-31 | right stick Right / Left / Up / Down |
+| 8 | R | | |
+| 9 | L | | |
+
+What each toggle exposes:
+
+| Extended buttons | Multiple controllers | Result |
+|---|---|---|
+| off | off | upstream behaviour: no extra register bits, nothing at `0x04FFF000` |
+| on | off | extra register bits; block with controller 1 only |
+| off | on | block with controllers 1-8, DS keys only (extra bits, axes and triggers read 0) |
+| on | on | everything |
+
+Reading it from C:
+
+```c
+#define MPAD_BASE 0x04FFF000
+#define MPAD_REG32(off) (*(volatile unsigned int*)(MPAD_BASE + (off)))
+
+int mpad_present(void)        { return MPAD_REG32(0x00) == 0x4441504D; }
+int mpad_connected(int n)     { return (MPAD_REG32(0x04) >> 24) >> n & 1; }
+unsigned mpad_buttons(int n)  { return MPAD_REG32(0x10 + n * 0x10); }
+signed char mpad_axis(int n, int a) /* a: 0 LX, 1 LY, 2 RX, 3 RY */
+{
+    return (signed char)(MPAD_REG32(0x14 + n * 0x10) >> (8 * a));
+}
+unsigned char mpad_trigger(int n, int t) /* t: 0 L2, 1 R2 */
+{
+    return (unsigned char)(MPAD_REG32(0x18 + n * 0x10) >> (8 * t));
+}
+```
+
+The layout is also documented in [`src/NDS.h`](./src/NDS.h) (`MultiPadBase`).
+
+### Configuration
+
+Per instance in `melonDS.toml`:
+
+* controller 1: `[InstanceN.Keyboard]`, `[InstanceN.Joystick]`, `JoystickID` (as upstream);
+* controllers 2-8: `[InstanceN.PadK.Keyboard]`, `[InstanceN.PadK.Joystick]` and `JoystickID` in
+  `[InstanceN.PadK]` (*K* = 2..8, -1 = no joystick);
+* new mapping keys: `L2 R2 L3 R3 LStickRight LStickLeft LStickUp LStickDown RStickRight
+  RStickLeft RStickUp RStickDown`;
+* toggles: `ExtendedButtons` and `MultiController` in `[InstanceN]`.
+
+### Test homebrew
+
+[`homebrew/mpadtest`](./homebrew/mpadtest) is a small bare-metal test ROM (no libnds needed) that
+shows all 8 controllers live: controllers 1-4 on the top screen, 5-8 on the bottom. Each panel shows
+the buttons, L2/R2 analog bars, both sticks with L3/R3, the raw button word, and (controller 1)
+the raw `KEYINPUT`. Build it with `homebrew/mpadtest/build.sh` (needs `arm-none-eabi-gcc` and
+Python 3) to get `mpadtest.nds`.
+
+<hr>
+
 ## How to use
 
 Firmware boot (not direct boot) requires a BIOS/firmware dump from an original DS or DS Lite.
