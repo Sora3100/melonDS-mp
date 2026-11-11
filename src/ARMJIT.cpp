@@ -79,6 +79,7 @@ const u32 CodeRegionSizes[ARMJIT_Memory::memregions_Count] =
     NWRAMSize,
     NWRAMSize,
     NWRAMSize,
+    CheatMemMaxSize,
 };
 
 u32 ARMJIT::LocaliseCodeAddress(u32 num, u32 addr) const noexcept
@@ -1108,6 +1109,8 @@ template void ARMJIT::CheckAndInvalidate<0, ARMJIT_Memory::memregion_NewSharedWR
 template void ARMJIT::CheckAndInvalidate<1, ARMJIT_Memory::memregion_NewSharedWRAM_B>(u32) noexcept;
 template void ARMJIT::CheckAndInvalidate<0, ARMJIT_Memory::memregion_NewSharedWRAM_C>(u32) noexcept;
 template void ARMJIT::CheckAndInvalidate<1, ARMJIT_Memory::memregion_NewSharedWRAM_C>(u32) noexcept;
+template void ARMJIT::CheckAndInvalidate<0, ARMJIT_Memory::memregion_Cave>(u32) noexcept;
+template void ARMJIT::CheckAndInvalidate<1, ARMJIT_Memory::memregion_Cave>(u32) noexcept;
 
 void ARMJIT::ResetBlockCache() noexcept
 {

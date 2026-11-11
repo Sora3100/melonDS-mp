@@ -540,6 +540,8 @@ void NDS::Reset()
     KeyCnt[1] = 0;
     RCnt = 0;
 
+    CaveFree();
+
     memset(MultiPadMem, 0, sizeof(MultiPadMem));
     MultiPadMem[0] = 'M'; MultiPadMem[1] = 'P'; MultiPadMem[2] = 'A'; MultiPadMem[3] = 'D';
     MultiPadMem[4] = 1; MultiPadMem[5] = 0;
@@ -635,6 +637,27 @@ u32 NDS::GetSavestateConfig()
 
 bool NDS::DoSavestate(Savestate* file)
 {
+    if (file->Saving || file->HasSection("CAVE"))
+    {
+        file->Section("CAVE");
+        u32 size = CaveSize;
+        file->Var32(&size);
+        if (!file->Saving)
+        {
+            CaveFree();
+            if (size > CaveMaxSize || (size & (size - 1))) size = 0;
+            if (size)
+            {
+                CaveMem.resize(size, 0);
+                CaveSize = size;
+            }
+        }
+        if (CaveSize)
+            file->VarArray(CaveMem.data(), CaveSize);
+    }
+    else
+        CaveFree();
+
     file->Section("NDSG");
 
     u32 config = GetSavestateConfig();
@@ -1250,12 +1273,41 @@ void NDS::SetMultiPad(int pad, u32 mask, u32 extMask, const s8* axes, const u8* 
 
 void NDS::MultiPadFrameDone()
 {
+    MultiPadMem[12] = CaveSize & 0xFF;
+    MultiPadMem[13] = (CaveSize >> 8) & 0xFF;
+    MultiPadMem[14] = (CaveSize >> 16) & 0xFF;
+    MultiPadMem[15] = CaveSize >> 24;
+
     u32 cnt = MultiPadMem[8] | (MultiPadMem[9] << 8) | (MultiPadMem[10] << 16) | (MultiPadMem[11] << 24);
     cnt++;
     MultiPadMem[8] = cnt & 0xFF;
     MultiPadMem[9] = (cnt >> 8) & 0xFF;
     MultiPadMem[10] = (cnt >> 16) & 0xFF;
     MultiPadMem[11] = cnt >> 24;
+}
+
+u32 NDS::CaveAllocate(u32 size)
+{
+    u32 want = 0x1000;
+    while (want < size && want < CaveMaxSize) want <<= 1;
+    if (want <= CaveSize) return CaveBase;
+
+    CaveMem.resize(want, 0);
+    CaveSize = want;
+    Log(LogLevel::Info, "cheat memory: %08X-%08X (%d KB)\n", CaveBase, CaveBase + CaveSize - 1, CaveSize >> 10);
+
+    // buffer may have moved: refresh the CPUs' code fetch regions and the ARM9 MPU map
+    ARM9.ApplyCavePU();
+    ARM9.SetupCodeMem(ARM9.R[15]);
+    ARM7.SetupCodeMem(ARM7.R[15]);
+    return CaveBase;
+}
+
+void NDS::CaveFree()
+{
+    CaveMem.clear();
+    CaveMem.shrink_to_fit();
+    CaveSize = 0;
 }
 
 u32 NDS::MultiPadRead(u32 addr, int size) const
@@ -2029,6 +2081,9 @@ return;
 
 u8 NDS::ARM9Read8(u32 addr)
 {
+    if (InCave(addr & ~0))
+        return *(u8*)&CaveMem[(addr & ~0) - CaveBase];
+
     if ((addr & 0xFFFFF000) == 0xFFFF0000)
     {
         return *(u8*)&ARM9BIOS[addr & 0xFFF];
@@ -2088,6 +2143,9 @@ u8 NDS::ARM9Read8(u32 addr)
 
 u16 NDS::ARM9Read16(u32 addr)
 {
+    if (InCave(addr & ~1))
+        return *(u16*)&CaveMem[(addr & ~1) - CaveBase];
+
     addr &= ~0x1;
 
     if ((addr & 0xFFFFF000) == 0xFFFF0000)
@@ -2148,6 +2206,9 @@ u16 NDS::ARM9Read16(u32 addr)
 
 u32 NDS::ARM9Read32(u32 addr)
 {
+    if (InCave(addr & ~3))
+        return *(u32*)&CaveMem[(addr & ~3) - CaveBase];
+
     addr &= ~0x3;
 
     if ((addr & 0xFFFFF000) == 0xFFFF0000)
@@ -2211,6 +2272,13 @@ u32 NDS::ARM9Read32(u32 addr)
 
 void NDS::ARM9Write8(u32 addr, u8 val)
 {
+    if (InCave(addr & ~0))
+    {
+        JIT.CheckAndInvalidate<0, ARMJIT_Memory::memregion_Cave>(addr & ~0);
+        *(u8*)&CaveMem[(addr & ~0) - CaveBase] = val;
+        return;
+    }
+
     switch (addr & 0xFF000000)
     {
     case 0x02000000:
@@ -2250,6 +2318,13 @@ void NDS::ARM9Write8(u32 addr, u8 val)
 
 void NDS::ARM9Write16(u32 addr, u16 val)
 {
+    if (InCave(addr & ~1))
+    {
+        JIT.CheckAndInvalidate<0, ARMJIT_Memory::memregion_Cave>(addr & ~1);
+        *(u16*)&CaveMem[(addr & ~1) - CaveBase] = val;
+        return;
+    }
+
     addr &= ~0x1;
 
     switch (addr & 0xFF000000)
@@ -2310,6 +2385,13 @@ void NDS::ARM9Write16(u32 addr, u16 val)
 
 void NDS::ARM9Write32(u32 addr, u32 val)
 {
+    if (InCave(addr & ~3))
+    {
+        JIT.CheckAndInvalidate<0, ARMJIT_Memory::memregion_Cave>(addr & ~3);
+        *(u32*)&CaveMem[(addr & ~3) - CaveBase] = val;
+        return;
+    }
+
     addr &= ~0x3;
 
     switch (addr & 0xFF000000)
@@ -2373,6 +2455,13 @@ void NDS::ARM9Write32(u32 addr, u32 val)
 
 bool NDS::ARM9GetMemRegion(u32 addr, bool write, MemRegion* region)
 {
+    if (InCave(addr))
+    {
+        region->Mem = CaveMem.data();
+        region->Mask = CaveSize - 1;
+        return true;
+    }
+
     switch (addr & 0xFF000000)
     {
     case 0x02000000:
@@ -2405,6 +2494,9 @@ bool NDS::ARM9GetMemRegion(u32 addr, bool write, MemRegion* region)
 
 u8 NDS::ARM7Read8(u32 addr)
 {
+    if (InCave(addr & ~0))
+        return *(u8*)&CaveMem[(addr & ~0) - CaveBase];
+
     if (addr < 0x00004000)
     {
         // TODO: check the boundary? is it 4000 or higher on regular DS?
@@ -2471,6 +2563,9 @@ u8 NDS::ARM7Read8(u32 addr)
 
 u16 NDS::ARM7Read16(u32 addr)
 {
+    if (InCave(addr & ~1))
+        return *(u16*)&CaveMem[(addr & ~1) - CaveBase];
+
     addr &= ~0x1;
 
     if (addr < 0x00004000)
@@ -2537,6 +2632,9 @@ u16 NDS::ARM7Read16(u32 addr)
 
 u32 NDS::ARM7Read32(u32 addr)
 {
+    if (InCave(addr & ~3))
+        return *(u32*)&CaveMem[(addr & ~3) - CaveBase];
+
     addr &= ~0x3;
 
     if (addr < 0x00004000)
@@ -2606,6 +2704,13 @@ u32 NDS::ARM7Read32(u32 addr)
 
 void NDS::ARM7Write8(u32 addr, u8 val)
 {
+    if (InCave(addr & ~0))
+    {
+        JIT.CheckAndInvalidate<0, ARMJIT_Memory::memregion_Cave>(addr & ~0);
+        *(u8*)&CaveMem[(addr & ~0) - CaveBase] = val;
+        return;
+    }
+
     switch (addr & 0xFF800000)
     {
     case 0x02000000:
@@ -2663,6 +2768,13 @@ void NDS::ARM7Write8(u32 addr, u8 val)
 
 void NDS::ARM7Write16(u32 addr, u16 val)
 {
+    if (InCave(addr & ~1))
+    {
+        JIT.CheckAndInvalidate<0, ARMJIT_Memory::memregion_Cave>(addr & ~1);
+        *(u16*)&CaveMem[(addr & ~1) - CaveBase] = val;
+        return;
+    }
+
     addr &= ~0x1;
 
     switch (addr & 0xFF800000)
@@ -2733,6 +2845,13 @@ void NDS::ARM7Write16(u32 addr, u16 val)
 
 void NDS::ARM7Write32(u32 addr, u32 val)
 {
+    if (InCave(addr & ~3))
+    {
+        JIT.CheckAndInvalidate<0, ARMJIT_Memory::memregion_Cave>(addr & ~3);
+        *(u32*)&CaveMem[(addr & ~3) - CaveBase] = val;
+        return;
+    }
+
     addr &= ~0x3;
 
     switch (addr & 0xFF800000)
@@ -2807,6 +2926,13 @@ void NDS::ARM7Write32(u32 addr, u32 val)
 
 bool NDS::ARM7GetMemRegion(u32 addr, bool write, MemRegion* region)
 {
+    if (InCave(addr))
+    {
+        region->Mem = CaveMem.data();
+        region->Mask = CaveSize - 1;
+        return true;
+    }
+
     switch (addr & 0xFF800000)
     {
     case 0x02000000:

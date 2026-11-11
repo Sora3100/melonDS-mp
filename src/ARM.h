@@ -312,6 +312,8 @@ public:
 
     void UpdatePURegion(u32 n);
     void UpdatePURegions(bool update_all);
+    // cheat memory (NDS::CaveBase) is always RWX and uncached for both privilege levels
+    void ApplyCavePU();
 
     u32 RandomLineIndex();
 

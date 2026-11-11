@@ -61,7 +61,7 @@ range reads 0.
 | `0x06` | u8 | controller count (8) |
 | `0x07` | u8 | connected mask (bit *n* = controller *n*+1 present) |
 | `0x08` | u32 | update counter (+1 every emulated frame) |
-| `0x0C` | u32 | reserved |
+| `0x0C` | u32 | allocated cheat memory size (0 = none), see below |
 | `0x10 + n*0x10` | 16 bytes | controller *n*+1 (*n* = 0..7) |
 
 Each controller entry:
@@ -129,6 +129,41 @@ Per instance in `melonDS.toml`:
   RStickLeft RStickUp RStickDown`;
 * toggles: `ExtendedButtons` and `MultiController` in `[InstanceN]`.
 
+### Cheat memory (code caves)
+
+An Action Replay code type allocates extra RAM that the game can use, e.g. for patch code and data:
+
+```
+CF000000 SSSSSSSS
+```
+
+* Allocates `SSSSSSSS` bytes of zero-filled RAM at **`0x0E000000`** (rounded up to a power of two,
+  4 KB minimum, **4 MB** maximum) and sets the code's offset register to `0x0E000000`, so the
+  following lines of the same code can fill it relative to that address.
+* `0x0E000000` is unused on both DS and DSi and inside the range ordinary AR codes can write
+  (`0x00000000-0x0FFFFFFF`).
+* The memory is mapped for **ARM9 and ARM7**: CPU reads/writes, DMA and code execution. On the ARM9
+  it is always **readable, writable and executable** no matter how the game set up the MPU (no
+  data/prefetch aborts) and is never cached.
+* Works with the **interpreter and the JIT**: code there is compiled like any other code, and
+  writes that change a compiled instruction invalidate it.
+* Running the code again (cheats run every frame) never shrinks or clears it; a larger size grows
+  it and keeps the contents. It is freed on reset and stored in savestates (states without it
+  still load).
+* The allocated size is also reported at `0x04FFF00C` in the multi-pad block (0 = none).
+
+Example: allocate 64 KB, copy a function (`mov r0,#0x42 ; bx lr`) and two data words to the start:
+
+```
+CF000000 00010000
+E0000000 00000010
+E3A00042 E12FFF1E
+12345678 CAFEBABE
+```
+
+A game patch can then branch into it, e.g. with a `bl`/`blx` written over an existing instruction
+by a normal `0XXXXXXX` code.
+
 ### Test homebrew
 
 [`homebrew/mpadtest`](./homebrew/mpadtest) is a small bare-metal test ROM (no libnds needed) that
@@ -136,6 +171,10 @@ shows all 8 controllers live: controllers 1-4 on the top screen, 5-8 on the bott
 the buttons, L2/R2 analog bars, both sticks with L3/R3, the raw button word, and (controller 1)
 the raw `KEYINPUT`. Build it with `homebrew/mpadtest/build.sh` (needs `arm-none-eabi-gcc` and
 Python 3) to get `mpadtest.nds`.
+
+[`homebrew/cavetest`](./homebrew/cavetest) tests the cheat memory: put `cavetest.mch` next to
+`cavetest.nds`, enable cheats, and the ROM checks that it can read, call, write and rewrite code at
+`0x0E000000` with the MPU on and that region left out of it.
 
 <hr>
 

@@ -111,6 +111,7 @@ public:
     AddressRange CodeIndexNWRAM_A[NWRAMSize / 512] {};
     AddressRange CodeIndexNWRAM_B[NWRAMSize / 512] {};
     AddressRange CodeIndexNWRAM_C[NWRAMSize / 512] {};
+    AddressRange CodeIndexCave[CheatMemMaxSize / 512] {};
 
     u64 FastBlockLookupITCM[ITCMPhysicalSize / 2] {};
     u64 FastBlockLookupMainRAM[MainRAMMaxSize / 2] {};
@@ -125,6 +126,7 @@ public:
     u64 FastBlockLookupNWRAM_A[NWRAMSize / 2] {};
     u64 FastBlockLookupNWRAM_B[NWRAMSize / 2] {};
     u64 FastBlockLookupNWRAM_C[NWRAMSize / 2] {};
+    u64 FastBlockLookupCave[CheatMemMaxSize / 2] {};
 
     AddressRange* const CodeMemRegions[ARMJIT_Memory::memregions_Count] =
     {
@@ -145,7 +147,8 @@ public:
         CodeIndexBIOS7DSi,
         CodeIndexNWRAM_A,
         CodeIndexNWRAM_B,
-        CodeIndexNWRAM_C
+        CodeIndexNWRAM_C,
+        CodeIndexCave
     };
 
     u64* const FastBlockLookupRegions[ARMJIT_Memory::memregions_Count] =
@@ -167,7 +170,8 @@ public:
         FastBlockLookupBIOS7DSi,
         FastBlockLookupNWRAM_A,
         FastBlockLookupNWRAM_B,
-        FastBlockLookupNWRAM_C
+        FastBlockLookupNWRAM_C,
+        FastBlockLookupCave
     };
 };
 }

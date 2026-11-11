@@ -43,6 +43,9 @@ constexpr u32 ARM9iBIOSLowCRC32 = 0x11E7C1EA;
 // CRC's for the full BIOS
 constexpr u32 ARM7iBIOSCRC32 = 0x4316CC42;
 constexpr u32 ARM9iBIOSCRC32 = 0xBAE84F6C;
+// melonDS-mp cheat memory (AR code CF000000 SSSSSSSS), see NDS::CaveAllocate
+constexpr u32 CheatMemBase = 0x0E000000;      // unused on DS and DSi, reachable by AR codes
+constexpr u32 CheatMemMaxSize = 0x00400000;   // 4 MB (JIT lookup tables are sized for this)
 }
 
 #endif // MELONDS_MEMCONSTANTS_H

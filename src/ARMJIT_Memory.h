@@ -93,6 +93,9 @@ public:
         memregion_NewSharedWRAM_B,
         memregion_NewSharedWRAM_C,
 
+        // melonDS-mp cheat memory (NDS::CaveBase)
+        memregion_Cave,
+
         memregions_Count
     };
 

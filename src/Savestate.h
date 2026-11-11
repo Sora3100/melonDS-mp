@@ -52,6 +52,8 @@ public:
     u32 CurSection;
 
     void Section(const char* magic);
+    // true if a section with this magic exists (always false while saving)
+    bool HasSection(const char* magic) const { return !Saving && FindSection(magic) != NO_SECTION; }
 
     void Var8(u8* var)
     {

@@ -248,6 +248,10 @@ void AREngine::RunCheat(const ARCode& arcode)
             NDS.ARM7Write32(b, offset);
             break;
 
+        case 0xCF: // allocate b bytes of cheat memory (melonDS-mp), offset = its base
+            offset = NDS.CaveAllocate(b);
+            break;
+
         case 0xD0: // ENDIF
             cond = condstack & 0x1;
             condstack >>= 1;

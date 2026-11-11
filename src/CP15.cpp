@@ -258,6 +258,21 @@ void ARMv5::UpdatePURegion(u32 n)
     }
 
     UpdateRegionTimings(start, end);
+    ApplyCavePU();
+}
+
+void ARMv5::ApplyCavePU()
+{
+    if (!NDS.CaveSize) return;
+
+    u32 start = NDS.CaveBase >> 12;
+    u32 end = (NDS.CaveBase + NDS.CaveSize) >> 12;
+    for (u32 i = start; i < end; i++)
+    {
+        PU_UserMap[i] = 0x07;
+        PU_PrivMap[i] = 0x07;
+    }
+    UpdateRegionTimings(start, end);
 }
 
 void ARMv5::UpdatePURegions(bool update_all)
@@ -274,6 +289,7 @@ void ARMv5::UpdatePURegions(bool update_all)
         memset(PU_PrivMap, mask, 0x100000);
 
         UpdateRegionTimings(0x00000, 0x100000);
+        ApplyCavePU();
         return;
     }
 
@@ -287,6 +303,7 @@ void ARMv5::UpdatePURegions(bool update_all)
     {
         UpdatePURegion(n);
     }
+    ApplyCavePU();
 
     // TODO: this is way unoptimized
     // should be okay unless the game keeps changing shit, tho

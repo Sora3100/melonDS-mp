@@ -20,6 +20,8 @@
 #define NDS_H
 
 #include <memory>
+#include <vector>
+#include "MemConstants.h"
 #include <string>
 #include <optional>
 #include <functional>
@@ -434,7 +436,7 @@ public: // TODO: Encapsulate the rest of these members
     //   +0x06 u8   pad count (8)
     //   +0x07 u8   connected mask (bit n = pad n present)
     //   +0x08 u32  update counter (incremented every frame)
-    //   +0x0C u32  reserved
+    //   +0x0C u32  cheat memory size (CaveSize, 0 = none)
     //   +0x10 + n*0x10, pad n (0..7):
     //     +0 u32 buttons, active-high:
     //            bits 0-9 like KEYINPUT (A B Sel Start Right Left Up Down R L)
@@ -453,6 +455,20 @@ public: // TODO: Encapsulate the rest of these members
     void SetMultiPadEnabled(bool enable) { MultiPadEnabled = enable; }
     bool MultiPadEnabled = true;
     u32 MultiPadRead(u32 addr, int size) const;
+
+    // Cheat-allocated memory ("cave"), created by the Action Replay code
+    //   CF000000 SSSSSSSS   allocate SSSSSSSS bytes at CaveBase, offset register = CaveBase
+    // Mapped for ARM9 and ARM7 (reads, writes, DMA, code fetch), always readable/writable/
+    // executable regardless of the game's MPU setup, zero-filled, kept in savestates and
+    // freed on reset. Size is rounded up to a power of two (4 KB .. 4 MB) and only grows.
+    // Works with the interpreter and the JIT (own JIT region, code invalidated on writes).
+    static constexpr u32 CaveBase = CheatMemBase;
+    static constexpr u32 CaveMaxSize = CheatMemMaxSize;
+    std::vector<u8> CaveMem;
+    u32 CaveSize = 0;
+    u32 CaveAllocate(u32 size);
+    void CaveFree();
+    bool InCave(u32 addr) const { return (addr - CaveBase) < CaveSize; }
 
     bool IsLidClosed() const;
     void SetLidClosed(bool closed);

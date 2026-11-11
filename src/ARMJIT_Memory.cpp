@@ -268,7 +268,8 @@ const u32 OffsetsPerRegion[ARMJIT_Memory::memregions_Count] =
     UINT32_MAX,
     MemBlockNWRAM_AOffset,
     MemBlockNWRAM_BOffset,
-    MemBlockNWRAM_COffset
+    MemBlockNWRAM_COffset,
+    UINT32_MAX, // cheat memory: not fastmem-mapped, slow path + explicit invalidation
 };
 
 enum
@@ -1167,6 +1168,10 @@ bool ARMJIT_Memory::GetMirrorLocation(int region, u32 num, u32 addr, u32& memory
             return true;
         }
         return false;
+    case memregion_Cave:
+        mirrorStart = CheatMemBase;
+        mirrorSize = NDS.CaveSize;
+        return NDS.CaveSize != 0;
     default:
         assert(false && "For the time being this should only be used for code");
         return false;
@@ -1231,6 +1236,8 @@ u32 ARMJIT_Memory::LocaliseAddress(int region, u32 num, u32 addr) const noexcept
     case memregion_BIOS9DSi:
     case memregion_BIOS7DSi:
         return (addr & 0xFFFF) | (region << 27);
+    case memregion_Cave:
+        return ((addr - CheatMemBase) & (CheatMemMaxSize - 1)) | (memregion_Cave << 27);
     default:
         assert(false && "This should only be needed for regions which can contain code");
         return memregion_Other << 27;
@@ -1266,6 +1273,9 @@ int ARMJIT_Memory::ClassifyAddress9(u32 addr) const noexcept
             return memregion_BIOS9;
         }
 
+        if (NDS.InCave(addr))
+            return memregion_Cave;
+
         switch (addr & 0xFF000000)
         {
         case 0x02000000:
@@ -1299,6 +1309,9 @@ int ARMJIT_Memory::ClassifyAddress9(u32 addr) const noexcept
 
 int ARMJIT_Memory::ClassifyAddress7(u32 addr) const noexcept
 {
+    if (NDS.InCave(addr))
+        return memregion_Cave;
+
     if (NDS.ConsoleType == 1)
     {
         auto& dsi = static_cast<DSi&>(NDS);
