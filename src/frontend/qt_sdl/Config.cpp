@@ -60,6 +60,7 @@ DefaultList<int> DefaultInts =
     {"3D.GL.ScaleFactor", 1},
 #ifdef JIT_ENABLED
     {"JIT.MaxBlockSize", 32},
+    {"Emu.CPUOverclock", 100},
 #endif
     {"Instance*.Firmware.Language", 1},
     {"Instance*.Firmware.BirthdayMonth", 1},

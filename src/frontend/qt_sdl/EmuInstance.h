@@ -102,6 +102,8 @@ public:
 
     Config::Table& getGlobalConfig() { return globalCfg; }
     Config::Table& getLocalConfig() { return localCfg; }
+    int getCPUOverclock() const { return cpuOverclock; }
+    void setCPUOverclock(int percent) { cpuOverclock = percent; }
 
     void broadcastCommand(int cmd, QVariant param = QVariant());
     void handleCommand(int cmd, QVariant& param);
@@ -400,6 +402,7 @@ private:
     static bool fillMappingFromController(int devIndex, int* map);
     void saveAutoMapping(int pad, int joyIndex, bool mappingChanged);
     std::vector<SDL_JoystickID> knownJoysticks;
+    int cpuOverclock = 100;        // ARM9 clock in percent (100-1000)
     bool extendedButtons = true;   // L2/R2/L3/R3 + sticks reported to the game
     bool multiController = true;   // controllers 2-8 active
     SDL_JoystickGUID padLastGUID[numPads];

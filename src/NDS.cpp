@@ -442,6 +442,7 @@ void NDS::Reset()
 
     RunningGame = false;
     LastSysClockCycles = 0;
+    ARM9OverclockRem = 0;
 
     // BIOS files are now loaded by the frontend
 

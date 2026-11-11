@@ -43,6 +43,10 @@ games) can read from the emulated DS.
   other.
 * **Toggles** at the top of the DS keypad tab: *Extended buttons* and *Multiple controllers*
   (both on by default). With both off, melonDS behaves exactly like upstream.
+* **CPU overclock** (*Config → Emu settings → CPU emulation*): a slider from 100% (stock 67 MHz
+  ARM9) to 1000% in 10% steps. It speeds up the ARM9 only (interpreter and JIT), takes effect
+  immediately without a reset, and can remove slowdown in games that lag on real hardware. Games
+  that depend on exact timing may misbehave above 100%.
 
 ### Where the controllers live
 
@@ -133,6 +137,7 @@ Per instance in `melonDS.toml`:
 * new mapping keys: `L2 R2 L3 R3 LStickRight LStickLeft LStickUp LStickDown RStickRight
   RStickLeft RStickUp RStickDown`;
 * toggles: `ExtendedButtons` and `MultiController` in `[InstanceN]`.
+* CPU overclock: `CPUOverclock` in `[Emu]` (percent, 100-1000, default 100).
 
 ### Cheat memory (code caves)
 

@@ -72,6 +72,7 @@ EmuInstance::EmuInstance(int inst) : deleting(false),
     localCfg(Config::GetLocalTable(inst))
 {
     consoleType = globalCfg.GetInt("Emu.ConsoleType");
+    cpuOverclock = globalCfg.GetInt("Emu.CPUOverclock");
 
     ndsSave = nullptr;
     cartType = -1;

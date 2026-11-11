@@ -716,7 +716,15 @@ void ARMv5::Execute()
 
         }
 
-        NDS.ARM9Timestamp += Cycles;
+        if (NDS.ARM9Overclock == 100) [[likely]]
+            NDS.ARM9Timestamp += Cycles;
+        else
+        {
+            // overclock: the same work takes fewer bus cycles, keep the fraction for the next step
+            u64 scaled = (u64)(u32)Cycles * 100 + NDS.ARM9OverclockRem;
+            NDS.ARM9Timestamp += scaled / NDS.ARM9Overclock;
+            NDS.ARM9OverclockRem = (u32)(scaled % NDS.ARM9Overclock);
+        }
         Cycles = 0;
     }
 

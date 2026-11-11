@@ -263,6 +263,8 @@ void EmuThread::run()
                 melonDS::u32 extm = ext ? ((m >> 12) & 0xFFF) : 0xFFF;
                 emuInstance->nds->SetKeyMask(m & 0xFFF, extm);
 
+                emuInstance->nds->SetARM9Overclock(emuInstance->cpuOverclock);
+
                 // the block exists while either feature is on
                 emuInstance->nds->SetMultiPadEnabled(ext || multi);
                 emuInstance->nds->SetMultiPad(0, m & 0xFFF, extm,

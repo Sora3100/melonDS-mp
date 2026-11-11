@@ -16,6 +16,7 @@
     with melonDS. If not, see http://www.gnu.org/licenses/.
 */
 
+#include <algorithm>
 #include <QFileDialog>
 #include <QMessageBox>
 
@@ -107,6 +108,17 @@ EmuSettingsDialog::EmuSettingsDialog(QWidget* parent) : QDialog(parent), ui(new 
 #endif
 
     on_chkEnableJIT_toggled();
+
+    // CPU overclock: live setting, saved on OK without forcing a reset (QSlider is not part of the reset check)
+    ui->sldCPUOverclock->setValue(std::clamp(cfg.GetInt("Emu.CPUOverclock"), 100, 1000));
+    ui->lblCPUOverclockValue->setText(QString("%1%").arg(ui->sldCPUOverclock->value()));
+    connect(ui->sldCPUOverclock, &QSlider::valueChanged, this, [this](int v)
+    {
+        // snap to 10% steps when dragging
+        int snapped = ((v + 5) / 10) * 10;
+        if (snapped != v) { ui->sldCPUOverclock->setValue(snapped); return; }
+        ui->lblCPUOverclockValue->setText(QString("%1%").arg(v));
+    });
     on_cbGdbEnabled_toggled();
     on_chkExternalBIOS_toggled();
     on_chkDSiExternalBIOS_toggled();
@@ -225,6 +237,18 @@ void EmuSettingsDialog::done(int r)
 
     if (r == QDialog::Accepted)
     {
+        {
+            // CPU overclock applies live, independent of the reset-requiring settings
+            int oc = ui->sldCPUOverclock->value();
+            auto& cfg = emuInstance->getGlobalConfig();
+            if (cfg.GetInt("Emu.CPUOverclock") != oc || emuInstance->getCPUOverclock() != oc)
+            {
+                cfg.SetInt("Emu.CPUOverclock", oc);
+                emuInstance->setCPUOverclock(oc);
+                Config::Save();
+            }
+        }
+
         bool modified = false;
 
 #define CHECK_ORIGVAL(type, val) \

@@ -279,6 +279,17 @@ public: // TODO: Encapsulate the rest of these members
     u64 ARM7Timestamp, ARM7Target;
     u32 ARM9ClockShift;
 
+    // ARM9 overclock in percent (100 = stock). Executed cycles are scaled by 100/ARM9Overclock.
+    u32 ARM9Overclock = 100;
+    u32 ARM9OverclockRem = 0;
+    void SetARM9Overclock(u32 percent)
+    {
+        if (percent < 10) percent = 10;
+        if (percent > 1000) percent = 1000;
+        if (percent != ARM9Overclock) ARM9OverclockRem = 0;
+        ARM9Overclock = percent;
+    }
+
     u32 IME[2];
     u32 IE[2];
     u32 IF[2];
