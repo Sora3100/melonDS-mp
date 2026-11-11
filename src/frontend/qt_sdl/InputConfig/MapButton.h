@@ -49,6 +49,8 @@ public:
     {
     }
 
+    void refresh() { if (!isChecked()) setText(mappingText()); }
+
 protected:
     void keyPressEvent(QKeyEvent* event) override
     {

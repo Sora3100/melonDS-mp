@@ -165,6 +165,8 @@ public:
     SDL_Joystick* getPadJoystick(int pad) { return pad == 0 ? joystick : extPads[pad-1].joystick; }
     // current SDL device index of a pad's joystick (-1 = none)
     int getPadJoystickIndex(int pad);
+    // SDL GUID string of a pad's joystick ("" = none), saved so pads find their controller again
+    std::string getPadJoystickGUID(int pad);
     // live joystick mapping of a pad (numButtons entries)
     const int* getPadJoyMapping(int pad) { return pad == 0 ? joyMapping : extPads[pad-1].joyMapping; }
     // fills a 24-entry joystick mapping from SDL's controller database (false if unknown device)
@@ -391,7 +393,8 @@ private:
     // joystick mappings are all None gets them filled from the SDL controller db
     void inputHotplug();
     bool isJoystickHeld(SDL_JoystickID id);
-    int pickFreePad(SDL_JoystickGUID guid);
+    int pickFreePad(int devIndex);
+    int resolveJoystick(const std::string& guid, int index, std::vector<bool>& taken);
     void assignJoystick(int pad, int devIndex);
     void autoFillPad(int pad, int devIndex, bool assigned);
     static bool fillMappingFromController(int devIndex, int* map);

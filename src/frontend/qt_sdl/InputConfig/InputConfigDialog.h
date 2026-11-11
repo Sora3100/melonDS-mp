@@ -164,6 +164,9 @@ private:
     QList<QWidget*> extWidgets;
     void applyToggles();
     QList<class JoyMapButton*> padJoyButtons[pad_num];
+    QList<class KeyMapButton*> padKeyButtons[pad_num];
+    bool padJoyChanged[pad_num] = {};
+    void refreshJoySelection();
     void loadPadMappings(int pad, Config::Table keycfg, Config::Table joycfg);
     void savePadMappings(int pad, Config::Table keycfg, Config::Table joycfg);
     void fillJoyCombo(int pad);

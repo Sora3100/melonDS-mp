@@ -177,6 +177,20 @@ void EmuInstance::inputLoadConfig()
         joyMapping[i] = joycfg.GetInt(buttonNames[i]);
     }
 
+    // close everything first, then hand each configured controller to its pad
+    closeJoystick();
+    for (auto& p : extPads)
+    {
+        if (p.joystick) SDL_JoystickClose(p.joystick);
+        p.joystick = nullptr;
+    }
+
+    std::vector<bool> taken(std::max(SDL_NumJoysticks(), 0), false);
+    std::string guid0 = localCfg.GetString("JoystickGUID");
+    int dev0 = resolveJoystick(guid0, localCfg.GetInt("JoystickID"), taken);
+    padHasGUID[0] = !guid0.empty();
+    if (padHasGUID[0]) padLastGUID[0] = SDL_JoystickGetGUIDFromString(guid0.c_str());
+
     for (int p = 1; p < numPads; p++)
     {
         ExtPad& pad = extPads[p-1];
@@ -189,14 +203,13 @@ void EmuInstance::inputLoadConfig()
             pad.joyMapping[i] = pjoycfg.GetInt(buttonNames[i]);
         }
         pad.keyInputMask = kAllReleased;
-        pad.joystickID = padcfg.GetInt("JoystickID");
-        if (multiController)
-            openExtJoystick(p);
-        else
-        {
-            if (pad.joystick) SDL_JoystickClose(pad.joystick);
-            pad.joystick = nullptr;
-        }
+
+        std::string guid = padcfg.GetString("JoystickGUID");
+        padHasGUID[p] = !guid.empty();
+        if (padHasGUID[p]) padLastGUID[p] = SDL_JoystickGetGUIDFromString(guid.c_str());
+
+        pad.joystickID = multiController ? resolveJoystick(guid, padcfg.GetInt("JoystickID"), taken) : -1;
+        openExtJoystick(p);
     }
 
     for (int i = 0; i < HK_MAX; i++)
@@ -205,8 +218,46 @@ void EmuInstance::inputLoadConfig()
         hkJoyMapping[i] = joycfg.GetInt(hotkeyNames[i]);
     }
 
-    setJoystick(localCfg.GetInt("JoystickID"));
+    setJoystick(dev0);
     SDL_UnlockMutex(joyMutex.get());
+}
+
+int EmuInstance::resolveJoystick(const std::string& guid, int index, std::vector<bool>& taken)
+{
+    int num = (int)taken.size();
+    int dev = -1;
+    if (!guid.empty())
+    {
+        // the first free device with the saved GUID
+        for (int i = 0; i < num && dev < 0; i++)
+        {
+            char str[64];
+            SDL_JoystickGetGUIDString(SDL_JoystickGetDeviceGUID(i), str, sizeof(str));
+            if (!taken[i] && guid == str) dev = i;
+        }
+    }
+    else if (index >= 0 && index < num && !taken[index])
+    {
+        // older config without a GUID: plain device index
+        dev = index;
+    }
+    if (dev >= 0) taken[dev] = true;
+    return dev;
+}
+
+std::string EmuInstance::getPadJoystickGUID(int pad)
+{
+    SDL_LockMutex(joyMutex.get());
+    std::string ret;
+    SDL_Joystick* joy = getPadJoystick(pad);
+    if (joy)
+    {
+        char str[64];
+        SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(joy), str, sizeof(str));
+        ret = str;
+    }
+    SDL_UnlockMutex(joyMutex.get());
+    return ret;
 }
 
 void EmuInstance::inputRumbleStart(melonDS::u32 len_ms)
@@ -300,10 +351,33 @@ void EmuInstance::setJoystick(int id)
 
 void EmuInstance::setPadJoystick(int pad, int id)
 {
-    if (pad == 0) { setJoystick(id); return; }
     SDL_LockMutex(joyMutex.get());
-    extPads[pad-1].joystickID = id;
-    openExtJoystick(pad);
+
+    // a controller belongs to one pad only
+    if (id >= 0 && id < SDL_NumJoysticks())
+    {
+        SDL_JoystickID inst = SDL_JoystickGetDeviceInstanceID(id);
+        for (int pn = 0; pn < numPads; pn++)
+        {
+            if (pn == pad) continue;
+            SDL_Joystick* j = getPadJoystick(pn);
+            if (!j || SDL_JoystickInstanceID(j) != inst) continue;
+            if (pn == 0) { joystickID = -1; closeJoystick(); }
+            else
+            {
+                SDL_JoystickClose(extPads[pn-1].joystick);
+                extPads[pn-1].joystick = nullptr;
+                extPads[pn-1].joystickID = -1;
+            }
+        }
+    }
+
+    if (pad == 0) setJoystick(id);
+    else
+    {
+        extPads[pad-1].joystickID = id;
+        openExtJoystick(pad);
+    }
     SDL_UnlockMutex(joyMutex.get());
 }
 
@@ -331,16 +405,20 @@ bool EmuInstance::isJoystickHeld(SDL_JoystickID id)
     return false;
 }
 
-int EmuInstance::pickFreePad(SDL_JoystickGUID guid)
+int EmuInstance::pickFreePad(int devIndex)
 {
+    SDL_JoystickGUID guid = SDL_JoystickGetDeviceGUID(devIndex);
     // 1. the free pad this kind of controller was last unplugged from
     for (int pn = 0; pn < (multiController ? numPads : 1); pn++)
     {
         if (getPadJoystick(pn) || !padHasGUID[pn]) continue;
         if (!memcmp(&padLastGUID[pn], &guid, sizeof(guid))) return pn;
     }
-    // 2. the first pad without a joystick
     int maxpad = multiController ? numPads : 1;
+    // 2. the pad matching the controller's player slot (XInput LED), if free
+    int slot = SDL_JoystickGetDevicePlayerIndex(devIndex);
+    if (slot >= 0 && slot < maxpad && !getPadJoystick(slot)) return slot;
+    // 3. the first pad without a joystick
     for (int pn = 0; pn < maxpad; pn++)
         if (!getPadJoystick(pn)) return pn;
     return -1;
@@ -518,7 +596,7 @@ void EmuInstance::inputHotplug()
             continue;
         }
 
-        int pad = pickFreePad(SDL_JoystickGetDeviceGUID(i));
+        int pad = pickFreePad(i);
         if (pad < 0) continue;
         assignJoystick(pad, i);
     }

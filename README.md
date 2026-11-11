@@ -32,10 +32,15 @@ games) can read from the emulated DS.
   * L2/R2 above L/R, the left stick (L3 in the middle) under the d-pad, the right stick
     (R3 in the middle) under the face buttons;
   * a joystick selector per controller with an **Auto-fill** button that fills the joystick
-    mappings from SDL's game controller database.
-* **Hotplug**: a newly connected joystick goes to a free controller (preferring the one it was
-  last unplugged from). If that controller's joystick mappings are all *None*, they are filled in
-  automatically (Nintendo layout by position: A = right, B = bottom, X = top, Y = left).
+    mappings from SDL's game controller database, and an **Unbind all** button that sets every
+    mapping on the page shown (keyboard or joystick) to *None*.
+* **Hotplug**: a newly connected joystick goes to a free controller: the one it was last on,
+  else the one matching its player slot (XInput LED 3 → Controller 3), else the first free one.
+  If that controller's joystick mappings are all *None*, they are filled in automatically
+  (Nintendo layout by position: A = right, B = bottom, X = top, Y = left).
+* Controllers are remembered by their SDL GUID (`JoystickGUID`), not just by device number, and a
+  joystick is never given to two controllers: choosing it for one controller removes it from the
+  other.
 * **Toggles** at the top of the DS keypad tab: *Extended buttons* and *Multiple controllers*
   (both on by default). With both off, melonDS behaves exactly like upstream.
 
@@ -122,8 +127,8 @@ The layout is also documented in [`src/NDS.h`](./src/NDS.h) (`MultiPadBase`).
 
 Per instance in `melonDS.toml`:
 
-* controller 1: `[InstanceN.Keyboard]`, `[InstanceN.Joystick]`, `JoystickID` (as upstream);
-* controllers 2-8: `[InstanceN.PadK.Keyboard]`, `[InstanceN.PadK.Joystick]` and `JoystickID` in
+* controller 1: `[InstanceN.Keyboard]`, `[InstanceN.Joystick]`, `JoystickID` and `JoystickGUID` in `[InstanceN]`;
+* controllers 2-8: `[InstanceN.PadK.Keyboard]`, `[InstanceN.PadK.Joystick]`, `JoystickID` and `JoystickGUID` in
   `[InstanceN.PadK]` (*K* = 2..8, -1 = no joystick);
 * new mapping keys: `L2 R2 L3 R3 LStickRight LStickLeft LStickUp LStickDown RStickRight
   RStickLeft RStickUp RStickDown`;

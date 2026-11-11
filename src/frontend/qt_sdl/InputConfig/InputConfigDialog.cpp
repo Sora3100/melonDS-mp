@@ -166,7 +166,12 @@ QWidget* InputConfigDialog::makeMapItem(int pad, bool joy, int btn, const char* 
         padJoyButtons[pad].append(jb);
         b = jb;
     }
-    else     b = new KeyMapButton(&keypadKeyMap[pad][btn], false);
+    else
+    {
+        KeyMapButton* kb = new KeyMapButton(&keypadKeyMap[pad][btn], false);
+        padKeyButtons[pad].append(kb);
+        b = kb;
+    }
     b->setMinimumWidth(108);
     lay->addWidget(b);
 
@@ -302,6 +307,10 @@ QWidget* InputConfigDialog::buildPadPage(int pad)
     autobtn->setToolTip("Fill this controller's joystick mappings from the selected joystick (SDL controller database)");
     jl->addWidget(autobtn);
 
+    QPushButton* clearbtn = new QPushButton("Unbind all");
+    clearbtn->setToolTip("Set every mapping on the page shown (keyboard or joystick) of this controller to None");
+    jl->addWidget(clearbtn);
+
     fillJoyCombo(pad);
 
     connect(cbx, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, pad](int idx)
@@ -309,9 +318,22 @@ QWidget* InputConfigDialog::buildPadPage(int pad)
         if (idx < 0) return;
         int id = padJoyCombo[pad]->itemData(idx).toInt();
         if (id == -2) return; // "(no joysticks available)"
-        padJoystickID[pad] = id;
-        if (pad == 0) joystickID = id;
+        padJoyChanged[pad] = true;
+        // may take the joystick away from another controller
         emuInstance->setPadJoystick(pad, id);
+        refreshJoySelection();
+    });
+
+    connect(clearbtn, &QPushButton::clicked, this, [this, pad]()
+    {
+        bool joy = padStack[pad]->currentIndex() == 1;
+        for (int i = 0; i < keypad_num; i++)
+        {
+            if (joy) keypadJoyMap[pad][i] = -1;
+            else     keypadKeyMap[pad][i] = -1;
+        }
+        if (joy) for (JoyMapButton* jb : padJoyButtons[pad]) jb->refresh();
+        else     for (KeyMapButton* kb : padKeyButtons[pad]) kb->refresh();
     });
 
     connect(autobtn, &QPushButton::clicked, this, [this, pad]()
@@ -368,6 +390,18 @@ void InputConfigDialog::fillJoyCombo(int pad)
     int id = padJoystickID[pad];
     if (id >= njoy) id = -1;
     cbx->setCurrentIndex(id + 1);
+}
+
+void InputConfigDialog::refreshJoySelection()
+{
+    for (int p = 0; p < pad_num; p++)
+    {
+        int id = emuInstance->getPadJoystickIndex(p);
+        if (id != padJoystickID[p]) padJoyChanged[p] = true;
+        padJoystickID[p] = id;
+        fillJoyCombo(p);
+    }
+    joystickID = padJoystickID[0];
 }
 
 void InputConfigDialog::onJoystickAutoAssigned(int pad, int joyIndex, const int* mapping)
@@ -495,11 +529,23 @@ void InputConfigDialog::on_InputConfigDialog_accepted()
         if (p > 0)
         {
             Config::Table padcfg = instcfg.GetTable(padTableName(p));
-            padcfg.SetInt("JoystickID", padJoystickID[p]);
+            // keep the saved controller of an unplugged pad unless the user changed it
+            if (padJoystickID[p] >= 0 || padJoyChanged[p])
+            {
+                padcfg.SetInt("JoystickID", padJoystickID[p]);
+                padcfg.SetString("JoystickGUID", emuInstance->getPadJoystickGUID(p));
+            }
             savePadMappings(p, padcfg.GetTable("Keyboard"), padcfg.GetTable("Joystick"));
         }
         else
+        {
+            if (padJoystickID[0] >= 0 || padJoyChanged[0])
+            {
+                instcfg.SetInt("JoystickID", padJoystickID[0]);
+                instcfg.SetString("JoystickGUID", emuInstance->getPadJoystickGUID(0));
+            }
             savePadMappings(p, keycfg, joycfg);
+        }
     }
 
     int i = 0;
@@ -520,7 +566,6 @@ void InputConfigDialog::on_InputConfigDialog_accepted()
         i++;
     }
 
-    instcfg.SetInt("JoystickID", joystickID);
     instcfg.SetBool("ExtendedButtons", chkExtended->isChecked());
     instcfg.SetBool("MultiController", chkMulti->isChecked());
     Config::Save();
