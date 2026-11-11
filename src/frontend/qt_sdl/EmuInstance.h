@@ -396,7 +396,7 @@ private:
     void inputHotplug();
     bool isJoystickHeld(SDL_JoystickID id);
     int pickFreePad(int devIndex);
-    int resolveJoystick(const std::string& guid, int index, std::vector<bool>& taken);
+    void resolveJoysticks(const std::string* guid, const int* index, int* dev);
     void assignJoystick(int pad, int devIndex);
     void autoFillPad(int pad, int devIndex, bool assigned);
     static bool fillMappingFromController(int devIndex, int* map);

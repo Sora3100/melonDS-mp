@@ -185,11 +185,21 @@ void EmuInstance::inputLoadConfig()
         p.joystick = nullptr;
     }
 
-    std::vector<bool> taken(std::max(SDL_NumJoysticks(), 0), false);
-    std::string guid0 = localCfg.GetString("JoystickGUID");
-    int dev0 = resolveJoystick(guid0, localCfg.GetInt("JoystickID"), taken);
-    padHasGUID[0] = !guid0.empty();
-    if (padHasGUID[0]) padLastGUID[0] = SDL_JoystickGetGUIDFromString(guid0.c_str());
+    // saved joystick (GUID + device index) of every controller
+    std::string padGUID[numPads];
+    int padIndex[numPads];
+    for (int p = 0; p < numPads; p++)
+    {
+        Config::Table cfg = (p == 0) ? localCfg : localCfg.GetTable("Pad" + std::to_string(p+1));
+        bool used = (p == 0) || multiController;
+        padGUID[p] = used ? cfg.GetString("JoystickGUID") : "";
+        padIndex[p] = used ? cfg.GetInt("JoystickID") : -1;
+        padHasGUID[p] = !padGUID[p].empty();
+        if (padHasGUID[p]) padLastGUID[p] = SDL_JoystickGetGUIDFromString(padGUID[p].c_str());
+    }
+    int padDev[numPads];
+    resolveJoysticks(padGUID, padIndex, padDev);
+    int dev0 = padDev[0];
 
     for (int p = 1; p < numPads; p++)
     {
@@ -204,11 +214,7 @@ void EmuInstance::inputLoadConfig()
         }
         pad.keyInputMask = kAllReleased;
 
-        std::string guid = padcfg.GetString("JoystickGUID");
-        padHasGUID[p] = !guid.empty();
-        if (padHasGUID[p]) padLastGUID[p] = SDL_JoystickGetGUIDFromString(guid.c_str());
-
-        pad.joystickID = multiController ? resolveJoystick(guid, padcfg.GetInt("JoystickID"), taken) : -1;
+        pad.joystickID = padDev[p];
         openExtJoystick(p);
     }
 
@@ -222,27 +228,40 @@ void EmuInstance::inputLoadConfig()
     SDL_UnlockMutex(joyMutex.get());
 }
 
-int EmuInstance::resolveJoystick(const std::string& guid, int index, std::vector<bool>& taken)
+void EmuInstance::resolveJoysticks(const std::string* guid, const int* index, int* dev)
 {
-    int num = (int)taken.size();
-    int dev = -1;
-    if (!guid.empty())
+    int num = std::max(SDL_NumJoysticks(), 0);
+    std::vector<bool> taken(num, false);
+    auto guidOf = [](int i)
     {
-        // the first free device with the saved GUID
-        for (int i = 0; i < num && dev < 0; i++)
-        {
-            char str[64];
-            SDL_JoystickGetGUIDString(SDL_JoystickGetDeviceGUID(i), str, sizeof(str));
-            if (!taken[i] && guid == str) dev = i;
-        }
-    }
-    else if (index >= 0 && index < num && !taken[index])
+        char str[64];
+        SDL_JoystickGetGUIDString(SDL_JoystickGetDeviceGUID(i), str, sizeof(str));
+        return std::string(str);
+    };
+    for (int p = 0; p < numPads; p++) dev[p] = -1;
+
+    // 1. the saved device number, if that device still has the saved GUID.
+    //    Identical controllers share a GUID, so this is what tells them apart.
+    for (int p = 0; p < numPads; p++)
     {
-        // older config without a GUID: plain device index
-        dev = index;
+        int i = index[p];
+        if (guid[p].empty() || i < 0 || i >= num || taken[i]) continue;
+        if (guidOf(i) == guid[p]) { dev[p] = i; taken[i] = true; }
     }
-    if (dev >= 0) taken[dev] = true;
-    return dev;
+    // 2. devices were renumbered (replugged): the first free device with the saved GUID
+    for (int p = 0; p < numPads; p++)
+    {
+        if (dev[p] >= 0 || guid[p].empty()) continue;
+        for (int i = 0; i < num; i++)
+            if (!taken[i] && guidOf(i) == guid[p]) { dev[p] = i; taken[i] = true; break; }
+    }
+    // 3. older config without a GUID: plain device number
+    for (int p = 0; p < numPads; p++)
+    {
+        int i = index[p];
+        if (dev[p] >= 0 || !guid[p].empty() || i < 0 || i >= num || taken[i]) continue;
+        dev[p] = i; taken[i] = true;
+    }
 }
 
 std::string EmuInstance::getPadJoystickGUID(int pad)
