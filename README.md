@@ -34,13 +34,17 @@ games) can read from the emulated DS.
   * a joystick selector per controller with an **Auto-fill** button that fills the joystick
     mappings from SDL's game controller database, and an **Unbind all** button that sets every
     mapping on the page shown (keyboard or joystick) to *None*.
-* **Hotplug**: a newly connected joystick goes to a free controller: the one it was last on,
-  else the one matching its player slot (XInput LED 3 → Controller 3), else the first free one.
-  If that controller's joystick mappings are all *None*, they are filled in automatically
-  (Nintendo layout by position: A = right, B = bottom, X = top, Y = left).
-* Controllers are remembered by their SDL GUID (`JoystickGUID`), not just by device number, and a
-  joystick is never given to two controllers: choosing it for one controller removes it from the
-  other.
+* **Hotplug**: a newly connected joystick goes to a free controller: one reserved for its model
+  (saved in the config, or last unplugged from it), else the one matching its player slot
+  (XInput LED 3 → Controller 3), else the first free one. A controller that is reserved for a
+  different model, or set to *(none)* in the dialog, is never filled automatically. The assignment
+  is saved, so each joystick keeps its controller across restarts. If that controller's joystick
+  mappings are all *None*, they are filled in automatically (Nintendo layout by position:
+  A = right, B = bottom, X = top, Y = left).
+* Controllers are remembered by model (bus, vendor and product from the SDL GUID in `JoystickGUID`)
+  plus device number, so identical pads stay apart; `JoystickGUID = "none"` keeps a controller
+  empty. A joystick is never given to two controllers: choosing it for one controller removes it
+  from the other.
 * **Toggles** at the top of the DS keypad tab: *Extended buttons* and *Multiple controllers*
   (both on by default). With both off, melonDS behaves exactly like upstream.
 * **CPU overclock** (*Config → Emu settings → CPU emulation*): a slider from 100% (stock 67 MHz

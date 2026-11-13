@@ -407,6 +407,11 @@ private:
     bool multiController = true;   // controllers 2-8 active
     SDL_JoystickGUID padLastGUID[numPads];
     bool padHasGUID[numPads];
+    // controller set to "(none)" by the user: never auto-assigned (JoystickGUID = "none")
+    bool padKeepEmpty[numPads];
+    // same controller model: bus, vendor and product only. The rest of an SDL GUID (name CRC,
+    // version, driver) changes between SDL versions and input backends.
+    static bool sameModel(const SDL_JoystickGUID& a, const SDL_JoystickGUID& b);
     int hkKeyMapping[HK_MAX];
     int hkJoyMapping[HK_MAX];
 

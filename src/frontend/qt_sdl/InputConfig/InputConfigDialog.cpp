@@ -533,7 +533,8 @@ void InputConfigDialog::on_InputConfigDialog_accepted()
             if (padJoystickID[p] >= 0 || padJoyChanged[p])
             {
                 padcfg.SetInt("JoystickID", padJoystickID[p]);
-                padcfg.SetString("JoystickGUID", emuInstance->getPadJoystickGUID(p));
+                // "(none)" chosen here: keep the controller empty, no auto-assign
+                padcfg.SetString("JoystickGUID", padJoystickID[p] < 0 ? std::string("none") : emuInstance->getPadJoystickGUID(p));
             }
             savePadMappings(p, padcfg.GetTable("Keyboard"), padcfg.GetTable("Joystick"));
         }
@@ -542,7 +543,7 @@ void InputConfigDialog::on_InputConfigDialog_accepted()
             if (padJoystickID[0] >= 0 || padJoyChanged[0])
             {
                 instcfg.SetInt("JoystickID", padJoystickID[0]);
-                instcfg.SetString("JoystickGUID", emuInstance->getPadJoystickGUID(0));
+                instcfg.SetString("JoystickGUID", padJoystickID[0] < 0 ? std::string("none") : emuInstance->getPadJoystickGUID(0));
             }
             savePadMappings(p, keycfg, joycfg);
         }
