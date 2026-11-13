@@ -192,7 +192,10 @@ PKG_CONFIG_PATH=$PWD/sdl2-static/lib/pkgconfig:$PKG_CONFIG_PATH cmake -B build-s
 cmake --build build-static
 ```
 
-`build-static/melonDS.exe` then only needs Windows' own DLLs. MSYS2's static libarchive expects
+`build-static/melonDS.exe` then only needs Windows' own DLLs. For the DLL build, ship a real SDL2.dll (same source,
+`-DSDL_SHARED=ON`) rather than MSYS2's sdl2-compat: under SDL3 the XInput axis order is
+LX, LY, LT, RX, RY, RT instead of SDL2's LX, LY, RX, RY, LT, RT, so saved axis mappings would point at the
+wrong axes. MSYS2's static libarchive expects
 zlib import pointers; `mingw_static_zlib.c` provides them in static MinGW builds.
 
 ### Test homebrew

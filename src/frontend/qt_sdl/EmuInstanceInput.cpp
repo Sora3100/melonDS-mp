@@ -824,6 +824,15 @@ bool EmuInstance::joystickButtonDown(int val)
     return joystickButtonDown(joystick, val);
 }
 
+// A stick direction mapped onto an axis that rests at the end of its range (a trigger,
+// e.g. after the SDL axis order changed) would read as held all the time: ignore it.
+static bool axisRestsAtEnd(SDL_Joystick* joy, int axisnum, int axisdir)
+{
+    Sint16 init;
+    if (!SDL_JoystickGetAxisInitialState(joy, axisnum, &init)) return false;
+    return (axisdir == 1 && init <= -32700) || (axisdir == 0 && init >= 32700);
+}
+
 int EmuInstance::joystickAxisValue(SDL_Joystick* joy, int val, bool trigger)
 {
     // analog value of an axis mapping (0..32767 towards the mapped direction),
@@ -833,6 +842,7 @@ int EmuInstance::joystickAxisValue(SDL_Joystick* joy, int val, bool trigger)
     int axisnum = (val >> 24) & 0xF;
     int axisdir = (val >> 20) & 0xF;
     int v = SDL_JoystickGetAxis(joy, axisnum);
+    if (axisRestsAtEnd(joy, axisnum, axisdir)) return 0;
 
     switch (axisdir)
     {
@@ -919,6 +929,7 @@ bool EmuInstance::joystickButtonDown(SDL_Joystick* joystick, int val)
         int axisnum = (val >> 24) & 0xF;
         int axisdir = (val >> 20) & 0xF;
         Sint16 axisval = SDL_JoystickGetAxis(joystick, axisnum);
+        if (axisRestsAtEnd(joystick, axisnum, axisdir)) return false;
 
         switch (axisdir)
         {
