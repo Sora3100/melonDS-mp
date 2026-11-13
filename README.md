@@ -178,6 +178,23 @@ E3A00042 E12FFF1E
 A game patch can then branch into it, e.g. with a `bl`/`blx` written over an existing instruction
 by a normal `0XXXXXXX` code.
 
+### Standalone Windows build (no DLLs)
+
+Static build with MSYS2 UCRT64, Qt 5 static and a static SDL2 built from source (MSYS2's SDL2 is
+sdl2-compat, which always loads SDL3.dll):
+
+```
+pacman -S mingw-w64-ucrt-x86_64-qt5-static
+git clone --depth 1 --branch release-2.32.10 https://github.com/libsdl-org/SDL.git SDL2-src
+cmake -S SDL2-src -B SDL2-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TEST=OFF -DCMAKE_INSTALL_PREFIX=$PWD/sdl2-static
+cmake --build SDL2-build && cmake --install SDL2-build
+PKG_CONFIG_PATH=$PWD/sdl2-static/lib/pkgconfig:$PKG_CONFIG_PATH cmake -B build-static -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_STATIC=ON -DUSE_QT6=OFF -DCMAKE_PREFIX_PATH="$MSYSTEM_PREFIX/qt5-static;$PWD/sdl2-static"
+cmake --build build-static
+```
+
+`build-static/melonDS.exe` then only needs Windows' own DLLs. MSYS2's static libarchive expects
+zlib import pointers; `mingw_static_zlib.c` provides them in static MinGW builds.
+
 ### Test homebrew
 
 [`homebrew/mpadtest`](./homebrew/mpadtest) is a small bare-metal test ROM (no libnds needed) that

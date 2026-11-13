@@ -112,6 +112,11 @@ if (WIN32)
         set_property(TARGET melonDS PROPERTY AUTORCC_OPTIONS "--no-zstd")
     endif()
 
+    if (BUILD_STATIC AND MINGW)
+        # MSYS2's static libarchive expects zlib import pointers
+        target_sources(melonDS PRIVATE mingw_static_zlib.c)
+    endif()
+
     if (BUILD_STATIC)
         find_package(SDL2 CONFIG COMPONENTS SDL2main)
         if (TARGET SDL2::SDL2main)
